@@ -72,37 +72,6 @@ setup_symlinks() {
     chmod +x ~/.profile.d/*
 }
 
-misc() {
-
-    # KUBECTL
-    mkdir -p ~/bin-local
-    cd ~/bin-local
-    if [ ! -e ./kubectl ]; then
-        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-    fi
-    if [ ! -e ./helm ]; then
-        F=helm-v3.13.2-linux-amd64.tar.gz
-        wget https://get.helm.sh/$F
-        tar xvzf ./$F
-        mv ./linux-amd64/helm ./
-    fi
-
-    # Speed up animations
-    if command -v gsettings; then
-	gsettings set org.gnome.desktop.interface enable-animations false || echo 'no gnome desktop'
-    fi
-
-    # Flatpak
-    echo "TODO: https://flatpak.org/setup/Ubuntu"
-
-    # VSCODE
-    if ! command -v code; then
-        echo "TODO: Get VSCODE from https://code.visualstudio.com/Download"
-        #google-chrome https://code.visualstudio.com/Download#
-        #exit 1
-    fi
-}
-
 allow_passwordless_sudo() {
     read -p "Enter 'Y' to set up passwordless sudo for user $USER. Or enter to skip" X
     if [ "$X" == "Y" ]; then
@@ -112,12 +81,26 @@ allow_passwordless_sudo() {
     fi
 }
 
+apps() {
+    D=./ubuntu/install-apps
+    SEP="################################################################################"
+    if [ -d $D ]; then
+        for i in $(ls -1 $D/*.sh); do
+            echo ""
+            echo "$SEP"
+            echo "Run $i"
+            echo "$SEP"
+            bash $i
+        done
+    fi
+}
 
 main() {
     allow_passwordless_sudo
     install_packages
     setup_symlinks
-    misc
+    apps
 }
 
-main
+#main
+apps

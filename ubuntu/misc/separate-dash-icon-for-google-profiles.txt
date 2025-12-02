@@ -1,0 +1,23 @@
+
+# Make a new Application (shows up in "Applications")
+cp /usr/share/applications/google-chrome.desktop ~/.local/share/applications/google-chrome-personal.desktop
+
+# Edit the application launcher file
+emacs ~/.local/share/applications/google-chrome-personal.desktop
+
+# Changed 2 lines and added one
+cat ~/.local/share/applications/google-chrome-personal.desktop | grep -E 'Exec|Icon|StartupWMClass'
+#
+# Add profile to Exec
+Exec=/usr/bin/google-chrome-stable --profile-directory='Profile 1' %U
+#
+# Set icon
+Icon=/home/pyoung/Pictures/google-icons/g5.png
+#
+# Launch the app via Applications, run 'xprop', click on the window,
+# and note StartupWMClass
+# Put the second string from WM_CLASS as "StartupWMClass"
+StartupWMClass=Google-chrome
+
+
+
