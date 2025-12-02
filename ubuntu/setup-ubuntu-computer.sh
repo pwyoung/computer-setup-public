@@ -9,14 +9,6 @@
 
 set -e
 
-# Path to where we installed https://github.com/pwyoung/computer-setup
-# If this exists, this program will create some convenient symlinks
-COMPUTER_SETUP=~/git/computer-setup
-
-# Things to symlink (from $COMPUTER_SETUP)
-SYMLINKS=".bash_profile bin .dircolors .emacs .gitconfig .profile.d"
-#SYMLINKS+=" .gitignore .tmux .tmux.conf"
-
 # Convenient packages to have
 PKGS="emacs-nox tree glances htop dmidecode iotop openssh-server python3-pip jq bash-completion"
 
@@ -82,7 +74,7 @@ allow_passwordless_sudo() {
 }
 
 apps() {
-    D=./ubuntu/install-apps
+    D=./install-apps
     SEP="################################################################################"
     if [ -d $D ]; then
         for i in $(ls -1 $D/*.sh); do
@@ -96,11 +88,10 @@ apps() {
 }
 
 main() {
-    allow_passwordless_sudo
+    #allow_passwordless_sudo
     install_packages
-    setup_symlinks
     apps
 }
 
-#main
-apps
+main
+
