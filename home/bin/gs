@@ -1,0 +1,8 @@
+
+#git status --ignored
+
+# echo "untracked"
+#git status -u
+
+git status
+
