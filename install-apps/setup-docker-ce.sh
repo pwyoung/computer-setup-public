@@ -2,6 +2,16 @@
 
 set -e
 
+get_approval() {
+    read -p "Enter 'Y' to install Docker-CE. Or enter to skip" X
+    if [ "$X" == "Y" ]; then
+        echo "ok"
+    else
+        exit 0
+    fi
+}
+
+
 docker_ce() {
     # 1. Check if Docker is already installed
     if command -v docker &> /dev/null; then
@@ -110,5 +120,5 @@ EONG
     docker run hello-world
 }
 
-docker_ce
+get_approval
 docker_ce
