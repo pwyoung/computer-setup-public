@@ -4,3 +4,5 @@
 # echo "untracked"
 #git status -u
 
+git status
+

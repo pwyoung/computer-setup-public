@@ -2,7 +2,7 @@
 
 #set -x
 
-LOG=~/mac-setup.log
+LOG=~/.tmp.mac-setup.log
 
 function setup_mouse_scaling_speed() {
     F=~/.custom-mouse-scaling.txt
