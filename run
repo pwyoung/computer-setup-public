@@ -1,0 +1,7 @@
+#!/bin/bash
+
+cd ./scripts
+
+./allow-passwordless-sudo.sh
+./install-apps.sh
+./make-symlinks.sh
