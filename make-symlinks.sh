@@ -2,12 +2,12 @@
 
 set -e
 
-COMPUTER_SETUP=~/git/computer-setup-public
+# Use this to find files relative to the git repo root (top level directory)
+_GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
 
 # Directory with things to symlink
-SYMLINK_SRC_DIR=$COMPUTER_SETUP/home
+SYMLINK_SRC_DIR="$_GIT_ROOT/home"
 
-# Things to symlink (from $COMPUTER_SETUP)
 SYMLINKS=""
 SYMLINKS+=" .emacs"
 SYMLINKS+=" .bash_profile"
@@ -29,7 +29,7 @@ make_link() {
     # Backup any existing file
     rm -rf $SRC.MOVED &>/dev/null || true
     mv -f $SRC $SRC.MOVED &>/dev/null || true
-    
+
     ln -s $TGT $SRC
 }
 
@@ -56,4 +56,3 @@ main() {
 }
 
 main
-
