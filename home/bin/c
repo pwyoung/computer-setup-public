@@ -2,3 +2,5 @@
 # Cleanup the current dir
 rm -f ./*~ &>/dev/null
 rm -f ./*# &>/dev/null
+clear
+
