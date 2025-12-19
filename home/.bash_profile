@@ -73,3 +73,7 @@ export PATH=$DEDUPLICATED_ORDER_PRESERVED_PATH
 
 
 [ -f /usr/local/etc/bash_completion ] && . /usr/local/etc/bash_completion
+
+### MANAGED BY RANCHER DESKTOP START (DO NOT EDIT)
+export PATH="/Users/pyoung/.rd/bin:$PATH"
+### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)
