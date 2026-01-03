@@ -130,82 +130,82 @@ passwd -l root
 
 echo "Setting up ansible user..."
 
-USERNAME=ansible
-USER_UID=1200
-USER_GID=1200
-SSH_PORT=2222
+ANSIBLE_USER=ansible
+ANSIBLE_USER_UID=1200
+ANSIBLE_USER_GID=1200
+ANSIBLE_SSH_PORT=2222
 
 # Check if group exists, if not create it
-if ! getent group $USERNAME > /dev/null; then
-    groupadd -g $USER_GID $USERNAME
+if ! getent group $ANSIBLE_USER > /dev/null; then
+    groupadd -g $ANSIBLE_USER_GID $ANSIBLE_USER
 fi
 
 # Check if user exists, if not create it
-if ! id -u $USERNAME > /dev/null 2>&1; then
-    useradd -m -u $USER_UID -g $USER_GID $USERNAME
+if ! id -u $ANSIBLE_USER > /dev/null 2>&1; then
+    useradd -m -u $ANSIBLE_USER_UID -g $ANSIBLE_USER_GID $ANSIBLE_USER
 fi
 
 # Assign to sudo/wheel group
-usermod -aG $SUDO_GROUP $USERNAME
-usermod -d /home/$USERNAME $USERNAME
-chsh -s /bin/bash $USERNAME
+usermod -aG $SUDO_GROUP $ANSIBLE_USER
+usermod -d /home/$ANSIBLE_USER $ANSIBLE_USER
+chsh -s /bin/bash $ANSIBLE_USER
 
 # Sudoers setup
-echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME
-chmod 0440 /etc/sudoers.d/$USERNAME
+echo "$ANSIBLE_USER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$ANSIBLE_USER
+chmod 0440 /etc/sudoers.d/$ANSIBLE_USER
 
 # Directory setup
-mkdir -p /home/$USERNAME/.ssh
-chmod 700 /home/$USERNAME/.ssh
-touch /home/$USERNAME/.ssh/authorized_keys
-chmod 600 /home/$USERNAME/.ssh/authorized_keys
-mkdir -p /home/$USERNAME/.ssh_host_keys
-chown $USERNAME:$USERNAME /home/$USERNAME/.ssh_host_keys
+mkdir -p /home/$ANSIBLE_USER/.ssh
+chmod 700 /home/$ANSIBLE_USER/.ssh
+touch /home/$ANSIBLE_USER/.ssh/authorized_keys
+chmod 600 /home/$ANSIBLE_USER/.ssh/authorized_keys
+mkdir -p /home/$ANSIBLE_USER/.ssh_host_keys
+chown $ANSIBLE_USER:$ANSIBLE_USER /home/$ANSIBLE_USER/.ssh_host_keys
 
 # Host key generation
 echo "Generating host keys..."
 ssh-keygen -A -h
 # We only generate these if they don't exist to prevent overwriting on re-runs
-if [ ! -f /home/$USERNAME/.ssh_host_keys/ssh_host_rsa_key ]; then
-    ssh-keygen -t rsa -f /home/$USERNAME/.ssh_host_keys/ssh_host_rsa_key -N ""
+if [ ! -f /home/$ANSIBLE_USER/.ssh_host_keys/ssh_host_rsa_key ]; then
+    ssh-keygen -t rsa -f /home/$ANSIBLE_USER/.ssh_host_keys/ssh_host_rsa_key -N ""
 fi
-if [ ! -f /home/$USERNAME/.ssh_host_keys/ssh_host_ecdsa_key ]; then
-    ssh-keygen -t ecdsa -f /home/$USERNAME/.ssh_host_keys/ssh_host_ecdsa_key -N ""
+if [ ! -f /home/$ANSIBLE_USER/.ssh_host_keys/ssh_host_ecdsa_key ]; then
+    ssh-keygen -t ecdsa -f /home/$ANSIBLE_USER/.ssh_host_keys/ssh_host_ecdsa_key -N ""
 fi
-if [ ! -f /home/$USERNAME/.ssh_host_keys/ssh_host_ed25519_key ]; then
-    ssh-keygen -t ed25519 -f /home/$USERNAME/.ssh_host_keys/ssh_host_ed25519_key -N ""
+if [ ! -f /home/$ANSIBLE_USER/.ssh_host_keys/ssh_host_ed25519_key ]; then
+    ssh-keygen -t ed25519 -f /home/$ANSIBLE_USER/.ssh_host_keys/ssh_host_ed25519_key -N ""
 fi
 
-chown $USERNAME:$USERNAME /home/$USERNAME/.ssh_host_keys/*
+chown $ANSIBLE_USER:$ANSIBLE_USER /home/$ANSIBLE_USER/.ssh_host_keys/*
 
 # Custom SSHD Config for User
-SSH_CONFIG="/home/$USERNAME/.sshd_config"
+SSH_CONFIG="/home/$ANSIBLE_USER/.sshd_config"
 cat <<EOF > $SSH_CONFIG
-HostKey /home/$USERNAME/.ssh_host_keys/ssh_host_rsa_key
-HostKey /home/$USERNAME/.ssh_host_keys/ssh_host_ecdsa_key
-HostKey /home/$USERNAME/.ssh_host_keys/ssh_host_ed25519_key
-Port $SSH_PORT
+HostKey /home/$ANSIBLE_USER/.ssh_host_keys/ssh_host_rsa_key
+HostKey /home/$ANSIBLE_USER/.ssh_host_keys/ssh_host_ecdsa_key
+HostKey /home/$ANSIBLE_USER/.ssh_host_keys/ssh_host_ed25519_key
+Port $ANSIBLE_SSH_PORT
 ListenAddress 0.0.0.0
 PermitRootLogin no
 PasswordAuthentication no
 EOF
 
-chown $USERNAME:$USERNAME $SSH_CONFIG
+chown $ANSIBLE_USER:$ANSIBLE_USER $SSH_CONFIG
 chmod 600 $SSH_CONFIG
 
 # Git config
 # Run as the user to ensure it goes to their home directory
-sudo -u $USERNAME git config --global init.defaultBranch main
+#sudo -u $ANSIBLE_USER git config --global init.defaultBranch main
 
 # Add SSH users
 GITHUB_USERS="pwyoung"
 # Clear file to avoid duplicates on re-run
-echo "" > /home/$USERNAME/.ssh/authorized_keys
+echo "" > /home/$ANSIBLE_USER/.ssh/authorized_keys
 for user in $GITHUB_USERS; do \
-    echo "# $user" >> /home/$USERNAME/.ssh/authorized_keys; \
-    curl -s "https://github.com/$user.keys" >> /home/$USERNAME/.ssh/authorized_keys; \
+    echo "# $user" >> /home/$ANSIBLE_USER/.ssh/authorized_keys; \
+    curl -s "https://github.com/$user.keys" >> /home/$ANSIBLE_USER/.ssh/authorized_keys; \
 done
-chown $USERNAME:$USERNAME /home/$USERNAME/.ssh/authorized_keys
+chown $ANSIBLE_USER:$ANSIBLE_USER /home/$ANSIBLE_USER/.ssh/authorized_keys
 
 ################################################################################
 # Shell configuration
@@ -213,7 +213,7 @@ chown $USERNAME:$USERNAME /home/$USERNAME/.ssh/authorized_keys
 
 echo "Configuring shell..."
 
-BASHRC="/home/$USERNAME/.bashrc"
+BASHRC="/home/$ANSIBLE_USER/.bashrc"
 # Only append if alias doesn't exist to prevent infinite growth on re-runs
 if ! grep -q "alias ll='ls -alF'" $BASHRC; then
     echo "alias ll='ls -alF'" >> $BASHRC
@@ -232,5 +232,5 @@ fi
 # Cleanup and Finish
 ################################################################################
 
-chown -R $USERNAME:$USERNAME /home/$USERNAME
+chown -R $ANSIBLE_USER:$ANSIBLE_USER /home/$ANSIBLE_USER
 echo "Setup complete."
