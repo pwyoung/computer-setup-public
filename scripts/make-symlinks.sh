@@ -14,6 +14,7 @@ SYMLINKS+=" .bash_profile"
 SYMLINKS+=" bin"
 SYMLINKS+=" .gitignore"
 SYMLINKS+=" .profile.d"
+SYMLINKS+=" .gpg-agent.conf"
 #SYMLINKS+=" .dircolors"
 
 report() {
