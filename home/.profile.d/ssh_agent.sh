@@ -14,6 +14,9 @@ SSH_ENV="$HOME/.ssh/agent-environment"
 # Log output from this script
 LOG=~/.ssh-agent.sh.out
 
+# Stay logged in this long
+DURATION='2d'
+
 add_key() {
     echo "Current keys" >>$LOG
     ssh-add -l >>$LOG
@@ -26,7 +29,7 @@ add_key() {
         echo "Public key has been added already" >>$LOG
     else
         echo "Public key has NOT been added already" >>$LOG
-        ssh-add "${SSH_PRIVATE_KEY}"
+        ssh-add -t $DURATION "${SSH_PRIVATE_KEY}"
     fi
 
     echo "Updated keys"
