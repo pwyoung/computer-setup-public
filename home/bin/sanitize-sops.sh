@@ -6,7 +6,7 @@
 #
 # Notes:
 # - The top-level "sops" key contains the public keys and data used to encrypt the file.
-# - This replaces the encrypted value with "<value>" to make it easy to identify parameters.
+# - This replaces each encrypted value with "<value>" to make it easy to identify parameters.
 
 # Check if input file is provided
 if [ -z "$1" ]; then
