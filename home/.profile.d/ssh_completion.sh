@@ -3,14 +3,13 @@
 # - Support aliases defined in ~/.ssh/config
 # - Support aliases defined in dirs included from ~/.ssh/config
 
-# Shared helper function to extract hostnames from config and known_hosts
+# Shared helper logic
 __get_ssh_hosts() {
     local config_file="$HOME/.ssh/config"
     local known_hosts_file="$HOME/.ssh/known_hosts"
     local -a config_files=()
 
     # 1. Parse known_hosts
-    # Splits on comma to handle [host]:port format, ignores hashed hosts (|) or bracketed IPs
     if [[ -f "$known_hosts_file" ]]; then
         awk '{split($1,a,","); if (a[1] !~ /^\[/ && a[1] !~ /^\|/) print a[1]}' "$known_hosts_file"
     fi
@@ -18,27 +17,16 @@ __get_ssh_hosts() {
     # 2. Parse config files (handling Includes)
     if [[ -f "$config_file" ]]; then
         config_files+=("$config_file")
-
-        # Extract 'Include' paths and expand globs
-        # We loop through the main config to find Include directives
         while read -r _ include_path; do
-            # Handle tilde expansion if present
             include_path="${include_path/#\~/$HOME}"
-
-            # Handle relative paths (prepend ~/.ssh/ if path doesn't start with /)
             if [[ "$include_path" != /* ]]; then
                 include_path="$HOME/.ssh/$include_path"
             fi
-
-            # Expand globs (e.g., ~/.ssh/config.d/*) and add valid files to array
             for f in $include_path; do
                 [[ -f "$f" ]] && config_files+=("$f")
             done
         done < <(grep -i "^Include " "$config_file")
 
-        # Parse all collected files for Host directives
-        # Iterates through all fields ($2 to $NF) to catch multiple aliases
-        # Excludes patterns containing wildcards (* or ?)
         awk '/^Host / {
             for (i=2; i<=NF; i++) {
                 if ($i !~ /[*?]/) print $i
@@ -47,40 +35,50 @@ __get_ssh_hosts() {
     fi
 }
 
-# ZSH Completion Function
-_ZSH_complete_ssh_hosts() {
-    local cur
-    COMPREPLY=()
-    cur="${COMP_WORDS[COMP_CWORD]}"
+# ------------------------------------------------------------------------------
+# ZSH / macOS Logic
+# ------------------------------------------------------------------------------
+if [[ -n "$ZSH_VERSION" ]] || [[ "$(uname)" == "Darwin" ]]; then
 
-    # Generate list, sort unique, and match against current input
-    local ssh_hosts
-    ssh_hosts=$(__get_ssh_hosts | sort -u)
+    _ZSH_complete_ssh_hosts() {
+        # 1. Prevent Zsh from falling back to filenames/users if we find nothing
+        compopt +o default +o bashdefault 2>/dev/null
 
-    COMPREPLY=( $(compgen -W "${ssh_hosts}" -- "$cur") )
-    return 0
-}
+        local cur="${COMP_WORDS[COMP_CWORD]}"
 
-# Bash Completion Function
-_complete_ssh_hosts() {
-    local cur
-    COMPREPLY=()
-    cur="${COMP_WORDS[COMP_CWORD]}"
+        # 2. Generate list, filter underscores, sort
+        local ssh_hosts=$(__get_ssh_hosts | grep -v "^_" | sort -u)
 
-    local ssh_hosts
-    ssh_hosts=$(__get_ssh_hosts | sort -u)
+        COMPREPLY=( $(compgen -W "${ssh_hosts}" -- "$cur") )
+        return 0
+    }
 
-    COMPREPLY=( $(compgen -W "${ssh_hosts}" -- "$cur") )
-    return 0
-}
-
-# Bind the functions
-# Check if running in Zsh or Bash to apply correctly
-if [[ -n "$ZSH_VERSION" ]]; then
-    # Zsh (assuming bashcompinit is enabled as per your snippet style)
+    # Setup for Zsh
     autoload -U +X bashcompinit && bashcompinit
+
+    # Remove any existing binding to ensure ours takes precedence
+    complete -r ssh 2>/dev/null
+
+    # Bind the function
     complete -F _ZSH_complete_ssh_hosts ssh
+
+# ------------------------------------------------------------------------------
+# Bash Logic
+# ------------------------------------------------------------------------------
 elif [[ -n "$BASH_VERSION" ]]; then
-    # Bash
+
+    _complete_ssh_hosts() {
+        compopt +o default 2>/dev/null
+
+        local cur="${COMP_WORDS[COMP_CWORD]}"
+        local ssh_hosts=$(__get_ssh_hosts | sort -u)
+
+        COMPREPLY=( $(compgen -W "${ssh_hosts}" -- "$cur") )
+        return 0
+    }
+
+    # Setup for Bash
+    complete -r ssh 2>/dev/null
     complete -F _complete_ssh_hosts ssh
+
 fi

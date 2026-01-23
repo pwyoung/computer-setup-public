@@ -1,0 +1,139 @@
+#!/bin/bash
+
+# Function to display usage instructions
+usage() {
+    echo "Usage: $0 [mode] [target] [options]"
+    echo ""
+    echo "Modes:"
+    echo "  -e <dir_name>      Encrypt: Tar, Gzip, and GPG encrypt a directory."
+    echo "  -d <file.gpg>      Decrypt: GPG decrypt, Gunzip, and Untar a file."
+    echo ""
+    echo "Options:"
+    echo "  -p <passphrase>    Specify passphrase (WARNING: Visible in process list/history)."
+    echo "                     If omitted, you will be prompted securely."
+    echo ""
+    echo "Examples:"
+    echo "  $0 -e my_data_folder"
+    echo "  $0 -d my_data_folder.tar.gz.gpg -p 'MySecretPass'"
+    exit 1
+}
+
+# Initialize variables
+MODE=""
+TARGET=""
+PASSPHRASE=""
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    key="$1"
+    case $key in
+        -e)
+            if [ -n "$MODE" ]; then echo "Error: Cannot specify both -e and -d"; exit 1; fi
+            MODE="encrypt"
+            TARGET="$2"
+            shift 2 # Shift past flag and argument
+            ;;
+        -d)
+            if [ -n "$MODE" ]; then echo "Error: Cannot specify both -e and -d"; exit 1; fi
+            MODE="decrypt"
+            TARGET="$2"
+            shift 2
+            ;;
+        -p)
+            PASSPHRASE="$2"
+            shift 2
+            ;;
+        *)
+            echo "Error: Unknown option '$1'"
+            usage
+            ;;
+    esac
+done
+
+# Check if a mode was selected
+if [ -z "$MODE" ] || [ -z "$TARGET" ]; then
+    usage
+fi
+
+# Check if target exists
+if [ ! -e "$TARGET" ]; then
+    echo "Error: Target '$TARGET' does not exist."
+    exit 1
+fi
+
+# Logic to get passphrase if not provided via -p
+if [ -z "$PASSPHRASE" ]; then
+    echo -n "Enter passphrase: "
+    read -s PASSPHRASE
+    echo "" # Print newline after silent input
+
+    # Optional: Confirm passphrase for encryption mode only to prevent typos
+    if [ "$MODE" == "encrypt" ]; then
+        echo -n "Confirm passphrase: "
+        read -s PASS_CONFIRM
+        echo ""
+        if [ "$PASSPHRASE" != "$PASS_CONFIRM" ]; then
+            echo "Error: Passphrases do not match."
+            exit 1
+        fi
+    fi
+fi
+
+# Check for GPG dependency
+if ! command -v gpg &> /dev/null; then
+    echo "Error: gpg is not installed."
+    exit 1
+fi
+
+# --- ENCRYPTION LOGIC ---
+if [ "$MODE" == "encrypt" ]; then
+    if [ ! -d "$TARGET" ]; then
+        echo "Error: For -e, the target must be a directory."
+        exit 1
+    fi
+
+    OUTPUT_FILE="${TARGET%/}.tar.gz.gpg"
+
+    echo "Archiving and Encrypting '$TARGET'..."
+
+    # Explanation of flags:
+    # tar -czf - : Create archive, gzip it, output to stdout (-)
+    # gpg --symmetric : Use symmetric encryption (passphrase)
+    # --cipher-algo AES256 : Use strong encryption standard
+    # --batch : Don't ask questions interactively
+    # --passphrase : Use the variable
+    # --pinentry-mode loopback : Prevents GPG from trying to pop up a GUI box
+
+    tar -czf - "$TARGET" | gpg --symmetric --cipher-algo AES256 --batch --passphrase "$PASSPHRASE" --pinentry-mode loopback -o "$OUTPUT_FILE"
+
+    if [ $? -eq 0 ]; then
+        echo "Success! Encrypted file created: $OUTPUT_FILE"
+    else
+        echo "Error: Encryption failed."
+        exit 1
+    fi
+
+# --- DECRYPTION LOGIC ---
+elif [ "$MODE" == "decrypt" ]; then
+    if [ ! -f "$TARGET" ]; then
+        echo "Error: For -d, the target must be a file."
+        exit 1
+    fi
+
+    echo "Decrypting and Extracting '$TARGET'..."
+
+    # Explanation of flags:
+    # gpg --decrypt : Decrypt data
+    # tar -xz : Extract gzip archive
+
+    gpg --decrypt --batch --passphrase "$PASSPHRASE" --pinentry-mode loopback "$TARGET" 2> /dev/null | tar -xz
+
+    # We capture the pipe exit status using ${PIPESTATUS[0]} for gpg and [1] for tar
+    # However, simple $? check usually suffices for the end of the pipe in bash
+    if [ $? -eq 0 ]; then
+        echo "Success! Files extracted."
+    else
+        echo "Error: Decryption or Extraction failed. Check your passphrase."
+        exit 1
+    fi
+fi
