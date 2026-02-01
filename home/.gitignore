@@ -120,3 +120,8 @@ tmp/
 
 
 **/agent-environment
+
+
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
