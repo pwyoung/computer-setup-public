@@ -1,0 +1,159 @@
+#!/bin/bash
+
+# Configuration
+BASE_DIR="$HOME/s3"
+AWS_ROOT="$BASE_DIR/aws-s3"
+GCP_ROOT="$BASE_DIR/gcp-gcs"
+
+# --- Dependency Management ---
+
+install_dependencies() {
+    echo "--- Checking System Dependencies ---"
+
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$ID
+        OS_LIKE=$ID_LIKE
+    else
+        echo "Error: Could not detect distribution via /etc/os-release."
+        exit 1
+    fi
+
+    # Check for core utilities first
+    TOOLS=("aws" "gcloud" "s3fs" "gcsfuse" "tree")
+    MISSING_TOOLS=()
+
+    for tool in "${TOOLS[@]}"; do
+        if ! command -v "$tool" &> /dev/null; then
+            MISSING_TOOLS+=("$tool")
+        fi
+    done
+
+    if [ ${#MISSING_TOOLS[@]} -eq 0 ]; then
+        echo "All dependencies (aws, gcloud, s3fs, gcsfuse, tree) are already installed."
+        return
+    fi
+
+    echo "Detected OS: $OS"
+    echo "Missing: ${MISSING_TOOLS[*]}"
+
+    # Logic for Pop!_OS, Ubuntu, Debian
+    if [[ "$OS" =~ ^(ubuntu|debian|pop|raspbian)$ ]] || [[ "$OS_LIKE" =~ "ubuntu" ]]; then
+        echo "Installing dependencies for Debian-based system..."
+        sudo apt-get update
+        sudo apt-get install -y s3fs tree fuse curl gpg lsb-release awscli
+
+        if [[ " ${MISSING_TOOLS[*]} " =~ " gcsfuse " ]] || [[ " ${MISSING_TOOLS[*]} " =~ " gcloud " ]]; then
+            # Google's repo often lags. If we are on 'noble' (Ubuntu 24.04/Pop equivalent),
+            # we fallback to 'jammy' (22.04) for the repo string.
+            CODENAME=$(lsb_release -c -s)
+            if [ "$CODENAME" == "noble" ] || [ "$OS" == "pop" ]; then
+                CODENAME="jammy"
+            fi
+
+            # Setup Google Cloud Keyring
+            curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/cloud.google.gpg
+
+            # Add GCSFuse Repo
+            echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt gcsfuse-$CODENAME main" | sudo tee /etc/apt/sources.list.d/gcsfuse.list
+
+            # Add Google Cloud CLI Repo
+            echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list
+
+            sudo apt-get update
+            sudo apt-get install -y gcsfuse google-cloud-cli
+        fi
+    else
+        echo "Error: Auto-install not configured for $OS. Please install ${MISSING_TOOLS[*]} manually."
+        exit 1
+    fi
+}
+
+# --- Cloud Operations ---
+
+mount_buckets() {
+    install_dependencies
+    echo "--- Initializing Cloud Mounts ---"
+
+    # AWS S3 Setup
+    mkdir -p "$AWS_ROOT"
+    if command -v aws &> /dev/null; then
+        echo "Scanning AWS Buckets..."
+        # Note: If this fails, user likely needs to run 'aws configure'
+        buckets=$(aws s3api list-buckets --query "Buckets[].Name" --output text 2>/dev/null)
+        for bucket in $buckets; do
+            [ -z "$bucket" ] && continue
+            mount_point="$AWS_ROOT/$bucket"
+            mkdir -p "$mount_point"
+            if ! mountpoint -q "$mount_point"; then
+                s3fs "$bucket" "$mount_point" -o allow_other && echo "SUCCESS: Mounted AWS S3 -> $bucket"
+            else
+                echo "SKIP: $bucket already mounted."
+            fi
+        done
+    else
+        echo "WARN: AWS CLI found but not configured. Run 'aws configure'."
+    fi
+
+    # GCP GCS Setup
+    mkdir -p "$GCP_ROOT"
+    if command -v gcloud &> /dev/null; then
+        echo "Scanning GCP Buckets..."
+        # Note: If this fails, user likely needs to run 'gcloud auth login'
+        buckets=$(gcloud storage buckets list --format="value(name)" 2>/dev/null)
+        for bucket in $buckets; do
+            [ -z "$bucket" ] && continue
+            mount_point="$GCP_ROOT/$bucket"
+            mkdir -p "$mount_point"
+            if ! mountpoint -q "$mount_point"; then
+                gcsfuse "$bucket" "$mount_point" && echo "SUCCESS: Mounted GCP GCS -> $bucket"
+            else
+                echo "SKIP: $bucket already mounted."
+            fi
+        done
+    else
+        echo "WARN: GCP CLI found but not configured. Run 'gcloud auth login'."
+    fi
+}
+
+cleanup() {
+    echo "--- Cleaning up all mounts ---"
+    if [ -d "$BASE_DIR" ]; then
+        # Find all directories that are currently mount points under BASE_DIR
+        find "$BASE_DIR" -mindepth 1 -maxdepth 2 -type d | while read -r dir; do
+            if mountpoint -q "$dir"; then
+                fusermount -u "$dir" && echo "Unmounted: $dir"
+            fi
+        done
+        # Delete the local folder structure
+        rm -rf "$AWS_ROOT" "$GCP_ROOT"
+        echo "Local mount points removed."
+    else
+        echo "Directory $BASE_DIR does not exist. Nothing to clean."
+    fi
+}
+
+# --- Main Logic ---
+
+# Check if any arguments were provided
+if [ $# -eq 0 ]; then
+    echo "Cloud Mount Tool"
+    echo "Usage: $0 [-b] [-t] [-c]"
+    echo "  -b : Build structure, install tools, and mount all buckets"
+    echo "  -t : Run 'tree' on the mount directory"
+    echo "  -c : Cleanup (Unmount all and delete local directories)"
+    exit 1
+fi
+
+while getopts "btc" opt; do
+  case $opt in
+    b) mount_buckets ;;
+    t)
+       echo "--- Current Storage Tree ---"
+       tree "$BASE_DIR"
+       ;;
+    c) cleanup ;;
+    *) echo "Invalid option. Use -b, -t, or -c." ; exit 1 ;;
+  esac
+done
+
