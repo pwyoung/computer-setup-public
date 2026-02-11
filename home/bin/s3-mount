@@ -106,7 +106,7 @@ mount_buckets() {
             mount_point="$GCP_ROOT/$bucket"
             mkdir -p "$mount_point"
             if ! mountpoint -q "$mount_point"; then
-                gcsfuse "$bucket" "$mount_point" && echo "SUCCESS: Mounted GCP GCS -> $bucket"
+                gcsfuse --implicit-dirs "$bucket" "$mount_point" && echo "SUCCESS: Mounted GCP GCS -> $bucket"
             else
                 echo "SKIP: $bucket already mounted."
             fi
@@ -156,4 +156,3 @@ while getopts "btc" opt; do
     *) echo "Invalid option. Use -b, -t, or -c." ; exit 1 ;;
   esac
 done
-
