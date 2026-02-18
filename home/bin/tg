@@ -1,0 +1,196 @@
+#!/bin/bash
+
+set -e
+
+# Set TF
+if command -v tofu; then
+    TF='tofu'
+elif command -v terraform; then
+    TF='terraform'
+else
+    echo "tofu and terraform are not in PATH"
+    exit 1
+fi
+
+
+# "remove all terraform/terragrunt files"
+remove-files() {
+    rm -rf ./.terraform
+    rm -f ./.terraform.lock.hcl
+    rm -f ./terraform.tfstate*
+    rm -rf ./.terragrunt-cache
+    rm ./*# ./*~
+    rm ./terragrunt-debug.tfvars.json
+}
+
+# "Check that the AWS ClI is working, and which user is connecting"
+show-user() {
+    aws sts get-caller-identity | jq .
+    aws ram list-resources  --resource-owner SELF
+}
+
+destroy() {
+    time terragrunt destroy -auto-approve 2>&1 | tee ~/.tf-destroy.log
+    rm -f .tfplan
+    rm -f terragrunt-debug.tfvars.json
+}
+
+# "Show terragrunt output"
+show-output() {
+    F=~/.tf-output.json
+    terragrunt output -json > $F
+    cat ~/.tf-output.json | jq .
+    echo "Output shown above was written to $F"
+    echo "View it, e.g. with: cat $F | jq '.'"
+
+    F=~/tg-deps.external.svg
+    echo "Writing external deps diagram to $F"
+    terragrunt list --format=dot --dependencies --external | dot -Tsvg > $F
+
+    F=~/tg-deps.svg
+    echo "Writing dag diagram to $F"
+    terragrunt dag graph | dot -Tsvg -Nshape=rect -Gsplines=ortho > $F
+
+
+}
+
+# 'terragrunt apply with --terragrunt-debug' produces ./terragrunt-debug.tfvars.json
+# "Show variables used"
+show-vars() {
+    cat ./terragrunt-debug.tfvars.json | jq . # Show vars actually used
+}
+
+# "Find a parent terragrunt.hcl file and format files under it."
+format() {
+    $TF fmt -recursive .
+
+    terragrunt hcl fmt \
+      --exclude-dir ".terragrunt-cache" \
+      --exclude-dir ".terraform"
+}
+
+# This is necessary if the module source (contents or paths) are changed
+update() {
+    terragrunt run --all init -- --upgrade
+}
+
+validate() {
+    terragrunt validate
+}
+
+plan() {
+    cat <<EOF >/dev/null
+    # This (terragrunt run-all plan) is BROKEN per this:
+    #   https://terragrunt.gruntwork.io/docs/reference/cli-options/
+    # The advice is to not run plan against multiple modules (since 5/2019)
+    #   https://github.com/gruntwork-io/terragrunt/issues/720#issuecomment-497888756
+    #terragrunt run-all plan -out=.tfplan
+EOF
+
+    terragrunt plan -out=.tfplan
+}
+
+# Plan and then apply
+apply() {
+    plan
+
+    #time terragrunt apply .tfplan --terragrunt-log-level debug --terragrunt-debug 2>&1 | tee ~/.tf-apply.log
+
+    # Make the log output look like the actual underlying tofu/terraform log output
+    # export TG_LOG_FORMAT=bare
+
+    terragrunt apply -auto-approve 2>&1 | tee ~/.tf-apply.log
+
+
+}
+
+show_usage() {
+    cat <<EOF
+Usage: $0 arg
+
+Args with their long-forms
+        -p|--plan (get -update, validate, plan)
+        -A|--apply (apply)
+        -x|--execute (equivalent to -p -A)
+        -f|--format
+        # After an "apply"
+        -i|--show-vars
+        -o|--show-output
+        # Destructive
+        -D|--destroy (terraform destroy -auto-approve)
+        -R|--destroy-and-remove-files (-D and remove terraform and terragrunt caches)
+        #
+        -u|--user (show AWS user)
+        #
+        -h|--help
+EOF
+}
+
+################################################################################
+
+if [[ $# -eq 0 ]]; then
+    show_usage
+    exit 1
+fi
+
+while [[ $# -gt 0 ]]; do
+    key="$1"
+
+    case $key in
+        -p|--plan)
+            shift
+            update
+            validate
+            plan
+            ;;
+        -A|--apply)
+            shift
+            apply
+            ;;
+        -x|--execute)
+            shift
+            update
+            validate
+            plan
+            apply
+            ;;
+        -f|--format)
+            shift
+            format
+            ;;
+	-h|--help)
+            show_usage
+            shift
+            ;;
+        -i|--show-vars)
+            shift
+            show-vars
+            ;;
+        -o|--show-output)
+            shift
+            show-output
+            ;;
+        -u|--update)
+            shift
+            update
+            ;;
+        -D|--destroy)
+            shift
+            destroy
+            ;;
+        -R|--destroy-and-remove-files)
+            shift
+            destroy
+            remove-files
+            ;;
+        -U|--user)
+            shift
+            show-user
+            ;;
+        *)
+            echo "unknown option '$1'"
+            show_usage
+            exit 1
+            ;;
+    esac
+done
