@@ -1,0 +1,2 @@
+python3-docker/jammy,jammy,now 5.0.3-1 all [installed,automatic]
+python3-dockerpty/jammy,jammy,now 0.4.1-2 all [installed,auto-removable]

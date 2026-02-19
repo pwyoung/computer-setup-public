@@ -1,0 +1,27 @@
+#!/bin/bash
+
+
+if ! command -v podman &>/dev/null; then
+    exec /usr/bin/docker "$@"
+fi
+
+# Intercept "compose" to use the official plugin with Podman's socket.
+# All other commands are passed directly to podman.
+if [[ "$1" == "compose" ]]; then
+    # Remove "compose" from the argument list
+    shift
+
+    # Ensure socket is running (idempotent)
+    systemctl --user start podman.socket
+
+    # Point DOCKER_HOST to Podman's socket just for this command
+    # Note: Ensure the socket is active via: systemctl --user enable --now podman.socket
+    export DOCKER_HOST="unix:///run/user/$UID/podman/podman.sock"
+
+    # Execute the official docker-compose plugin binary
+    # We use 'exec' to replace the current shell process with the command
+    exec /usr/libexec/docker/cli-plugins/docker-compose "$@"
+else
+    # Pass all original arguments to podman
+    exec podman "$@"
+fi

@@ -62,6 +62,8 @@ function disable_docker() {
 # Step 2: Remove Docker CE packages (optional aggressive removal)
 # ──────────────────────────────────────────────────────────────────────────────
 function remove_docker_packages() {
+    set +e
+
     print_header "Removing Docker CE packages"
 
     local packages=(
@@ -72,22 +74,32 @@ function remove_docker_packages() {
     for pkg in "${packages[@]}"; do
         if dpkg -l | grep -q "$pkg"; then
             print_info "Removing $pkg..."
-            sudo apt-get remove --purge -y "$pkg" || true
+            sudo apt-get remove --purge -y "$pkg"
         fi
     done
 
     print_info "Cleaning up leftover files..."
-    sudo rm -rf /var/lib/docker /etc/docker /var/run/docker.sock || true
+    sudo rm -rf /var/lib/docker /etc/docker /var/run/docker.sock
 
     #PWY Added
-    for i in ; do echo python3-dockerpty; sudo apt remove -f python3-dockerpty ;done
+    sudo apt remove -y podman buildah skopeo
+    sudo apt remove -y docker-buildx-plugin docker-compose-plugin docker-compose
+    PKGS=$(sudo apt list  --installed 2>/dev/null | grep -iE 'docker|podman' | awk '{print $1}' | cut -d '/' -f 1)
+    if [ "x$PKGS" == "x" ]; then
+        echo "All packages removed"
+    else
+        echo "PACKAGES TO DELETE: $PKGS"
+        sudo apt remove -y $PKGS
+    fi
 
-
-    
+    echo "Cleanup packages"
     sudo apt-get autoremove -y
     sudo apt-get autoclean
 
-    print_info "Docker CE packages removed."
+    print_info "Docker and Podman packages removed."
+    #read -p "hit enter"
+
+    set -e
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -96,30 +108,48 @@ function remove_docker_packages() {
 function install_podman() {
     print_header "Installing latest stable Podman"
 
-    # Add official Podman repository (recommended for up-to-date versions)
-    if ! grep -q "devel:kubic:libcontainers:stable" /etc/apt/sources.list.d/*; then
-        print_info "Adding Podman stable repository..."
-        echo 'deb [signed-by=/usr/share/keyrings/devel_kubic_libcontainers_stable-archive-keyring.gpg] https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_22.04/ /' \
-            | sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
 
-        curl -fsSL https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable/xUbuntu_22.04/Release.key \
-            | sudo gpg --dearmor -o /usr/share/keyrings/devel_kubic_libcontainers_stable-archive-keyring.gpg
-    fi
-
-    print_info "Updating package lists..."
+    # Update and install prerequisites
+    # Fail if the apt system (keys or repos) are corrupt at this point
     sudo apt update
+    sudo apt install -y software-properties-common
 
-    print_info "Installing Podman and friends..."
-    sudo apt install -y podman podman-docker buildah skopeo fuse-overlayfs
+    # OS version
+    VERSION_ID=$(lsb_release -rs)
 
-    # Enable user namespaces (required for rootless)
-    print_info "Ensuring user namespaces are enabled..."
-    if ! grep -q "user.max_user_namespaces" /etc/sysctl.conf; then
-        echo "user.max_user_namespaces = 28633" | sudo tee -a /etc/sysctl.conf
-        sudo sysctl -p
+
+    if [ ! -e /etc/apt/trusted.gpg.d/libcontainers.gpg ]; then
+        echo "Download the GPG APT key"
+        curl -fsSL https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_${VERSION_ID}/Release.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/libcontainers.gpg > /dev/null
+        sudo apt update
+        echo "Added the key"
+        read -p "hit enter"
     fi
 
-    print_info "Podman installed successfully."
+    if [ ! -e /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list ]; then
+        echo "Add repo and update packages"
+        echo "deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_${VERSION_ID}/ /" | sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
+        sudo apt update
+        read -p "hit enter"
+    fi
+
+    if ! command -v podman; then
+        echo "Install podman"
+        sudo apt install podman -y
+        #sudo apt install -y podman podman-docker buildah skopeo fuse-overlayfs
+        read -p "hit enter"
+    fi
+
+    echo "Verify"
+    podman --version
+    read -p "hit enter"
+
+    #print_info "Ensuring user namespaces are enabled..."
+    #if ! grep -q "user.max_user_namespaces" /etc/sysctl.conf; then
+    #    echo "user.max_user_namespaces = 28633" | sudo tee -a /etc/sysctl.conf
+    #    sudo sysctl -p
+    #fi
+
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -128,28 +158,48 @@ function install_podman() {
 function setup_drop_in_replacement() {
     print_header "Setting up Podman as docker drop-in replacement"
 
-    # Create user alias in shell profile (persistent)
-    local profile="$HOME/.bashrc"
-    [[ -f "$HOME/.zshrc" ]] && profile="$HOME/.zshrc"
-
-    if ! grep -q "alias docker=podman" "$profile"; then
-        print_info "Adding docker alias to $profile"
-        {
-            echo ""
-            echo "# Podman as docker drop-in"
-            echo "alias docker=podman"
-            echo "alias docker-compose='podman-compose'"
-        } >> "$profile"
+    D=~/bin
+    if [ ! -e "$D" ]; then
+        mkdir "$D"
+        echo "Add $D to PATH"
+        read -p "Hit enter when done"
     fi
 
-    # Install podman-compose (python-based, most compatible)
-    if ! check_command podman-compose; then
-        print_info "Installing podman-compose..."
-        sudo apt install -y python3-pip
-        pip3 install --user podman-compose
-    fi
+    F="$D/docker"
 
-    print_info "Run 'source $profile' or restart your terminal to use 'docker' → podman"
+    cat <<EOF >"$F"
+#!/bin/bash
+
+
+if ! command -v podman &>/dev/null; then
+    exec /usr/bin/docker "$@"
+fi
+
+# Intercept "compose" to use the official plugin with Podman's socket.
+# All other commands are passed directly to podman.
+if [[ "$1" == "compose" ]]; then
+    # Remove "compose" from the argument list
+    shift
+
+    # Ensure socket is running (idempotent)
+    systemctl --user start podman.socket
+
+    # Point DOCKER_HOST to Podman's socket just for this command
+    # Note: Ensure the socket is active via: systemctl --user enable --now podman.socket
+    export DOCKER_HOST="unix:///run/user/$UID/podman/podman.sock"
+
+    # Execute the official docker-compose plugin binary
+    # We use 'exec' to replace the current shell process with the command
+    exec /usr/libexec/docker/cli-plugins/docker-compose "$@"
+else
+    # Pass all original arguments to podman
+    exec podman "$@"
+fi
+
+EOF
+
+    chmod 0700 "$F"
+
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -181,19 +231,35 @@ function install_podman_desktop() {
 # ──────────────────────────────────────────────────────────────────────────────
 # Main execution
 # ──────────────────────────────────────────────────────────────────────────────
+run() {
+    print_header "Switching from Docker CE to Podman on Pop!_OS"
 
-print_header "Switching from Docker CE to Podman on Pop!_OS"
+    disable_docker
+    remove_docker_packages           # comment this line if you want to keep config files
+    install_podman
+    setup_drop_in_replacement
 
+    # Optional: install Podman Desktop (uncomment if you want the GUI)
+    #install_podman_desktop
+
+    print_header "Done!"
+    echo -e "${GREEN}Podman is now ready to use as 'docker'${NC}"
+    echo "Run 'source ~/.bashrc' (or ~/.zshrc) to activate the alias immediately."
+    echo "Test with: docker --version   (should show podman)"
+    echo "           docker run hello-world"
+
+
+
+    # PWY ADDED
+    #sudo apt update && sudo apt install containernetworking-plugins
+    # see ~/bin/docker
+}
+
+#run
+#install_podman
+
+
+echo "SNAFU: Ubuntu has 3.4.x of podman, but Podman is on 4.6.x"
+echo "GIVE UP ALREADY RUNNING PODMAN ON UBUTU..."
 disable_docker
 remove_docker_packages           # comment this line if you want to keep config files
-install_podman
-setup_drop_in_replacement
-
-# Optional: install Podman Desktop (uncomment if you want the GUI)
-install_podman_desktop
-
-print_header "Done!"
-echo -e "${GREEN}Podman is now ready to use as 'docker'${NC}"
-echo "Run 'source ~/.bashrc' (or ~/.zshrc) to activate the alias immediately."
-echo "Test with: docker --version   (should show podman)"
-echo "           docker run hello-world"
