@@ -1,0 +1,47 @@
+#!/bin/bash
+
+# Goal:
+# - Archive a set of files or directories.
+#
+# Notes
+# - This will create a dir under $base_archive
+#   and move the matching files (including dirs) under that.
+
+# USAGE Examples
+# - rma ./a-file
+# - rma /tmp/some-pattern*
+
+
+base_archive="$HOME/_Archive"
+
+archive() {
+    if [ $# -eq 0 ]; then
+        echo "Usage: archive <file_or_dir1> <file_or_dir2> ..."
+        return 1
+    fi
+
+    local timestamp=$(date +%Y%m%d%H%M%S)
+
+    # 1. Get the absolute path of the FIRST argument
+    # 2. Get its parent directory (dirname)
+    # 3. Strip leading slash and replace remaining slashes with '__'
+    local first_arg_abs=$(realpath "$1")
+    local parent_dir=$(dirname "$first_arg_abs")
+    local path_prefix=$(echo "$parent_dir" | sed 's/^\///; s/\//__/g')
+
+    # Combine timestamp and the encoded path
+    local target_dir="$base_archive/${timestamp}_${path_prefix}"
+
+    # Create the archive directory
+    mkdir -p "$target_dir"
+
+    # Move the files/dirs
+    # Using "$@" allows support for multiple arguments and wildcards
+    mv -v "$@" "$target_dir"
+
+    echo -e "\nStored in: $target_dir"
+}
+
+archive "$@"
+
+
