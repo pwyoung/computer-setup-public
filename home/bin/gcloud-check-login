@@ -1,0 +1,2 @@
+#!/bin/bash
+gcloud auth list 2>&1 && gcloud auth application-default print-access-token | wc -c

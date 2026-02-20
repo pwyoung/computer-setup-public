@@ -1,17 +1,26 @@
 #!/bin/bash
 
+# GOAL
+# - Make it easy to run "terragrunt" commands
+#   after calling set_env.sh to set up the env vars.
+# - Make it easy to run some simple or more complex
+#   sets of commands quickly (e.g. tg -A)
+
 set -e
 
-# Set TF
-if command -v tofu; then
-    TF='tofu'
-elif command -v terraform; then
-    TF='terraform'
-else
-    echo "tofu and terraform are not in PATH"
-    exit 1
+# Check if we are inside a git repository
+if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+  echo "Error: This script must be run within a git repository."
+  exit 1
 fi
 
+# Source the Framework Environment file
+. $(git rev-parse --show-toplevel)/set_env.sh
+
+# Confirm that terragrunt is version 0.99 or higher
+TG_VERSION=$(terragrunt --version)
+[[ $(echo "$TG_VERSION" | grep -oE '[0-9]+\.[0-9]+' | head -n1) > 0.98 ]] && echo "TG Version OK" || echo "TG Version Too Old"
+exit 1
 
 # "remove all terraform/terragrunt files"
 remove-files() {
@@ -20,11 +29,11 @@ remove-files() {
     rm -f ./terraform.tfstate*
     rm -rf ./.terragrunt-cache
     rm ./*# ./*~
-    rm ./terragrunt-debug.tfvars.json
 }
 
-# "Check that the AWS ClI is working, and which user is connecting"
+# TODO: update this for all clouds, based on the active config.
 show-user() {
+    # "Check that the AWS ClI is working, and which user is connecting"
     aws sts get-caller-identity | jq .
     aws ram list-resources  --resource-owner SELF
 }
@@ -32,36 +41,30 @@ show-user() {
 destroy() {
     time terragrunt destroy -auto-approve 2>&1 | tee ~/.tf-destroy.log
     rm -f .tfplan
-    rm -f terragrunt-debug.tfvars.json
 }
 
-# "Show terragrunt output"
 show-output() {
     F=~/.tf-output.json
     terragrunt output -json > $F
     cat ~/.tf-output.json | jq .
     echo "Output shown above was written to $F"
-    echo "View it, e.g. with: cat $F | jq '.'"
-
-    F=~/tg-deps.external.svg
-    echo "Writing external deps diagram to $F"
-    terragrunt list --format=dot --dependencies --external | dot -Tsvg > $F
-
-    F=~/tg-deps.svg
-    echo "Writing dag diagram to $F"
-    terragrunt dag graph | dot -Tsvg -Nshape=rect -Gsplines=ortho > $F
-
-
 }
 
-# 'terragrunt apply with --terragrunt-debug' produces ./terragrunt-debug.tfvars.json
-# "Show variables used"
-show-vars() {
-    cat ./terragrunt-debug.tfvars.json | jq . # Show vars actually used
+show-inputs() {
+    terragrunt render --all --json | jq '.inputs'
 }
 
-# "Find a parent terragrunt.hcl file and format files under it."
 format() {
+    # Set TF
+    if command -v tofu; then
+        TF='tofu'
+    elif command -v terraform; then
+        TF='terraform'
+    else
+        echo "tofu and terraform are not in PATH"
+        exit 1
+    fi
+
     $TF fmt -recursive .
 
     terragrunt hcl fmt \
@@ -70,7 +73,7 @@ format() {
 }
 
 # This is necessary if the module source (contents or paths) are changed
-update() {
+upgrade() {
     terragrunt run --all init -- --upgrade
 }
 
@@ -79,29 +82,25 @@ validate() {
 }
 
 plan() {
-    cat <<EOF >/dev/null
-    # This (terragrunt run-all plan) is BROKEN per this:
-    #   https://terragrunt.gruntwork.io/docs/reference/cli-options/
-    # The advice is to not run plan against multiple modules (since 5/2019)
-    #   https://github.com/gruntwork-io/terragrunt/issues/720#issuecomment-497888756
-    #terragrunt run-all plan -out=.tfplan
-EOF
-
-    terragrunt plan -out=.tfplan
+    terragrunt plan
 }
 
-# Plan and then apply
 apply() {
-    plan
-
-    #time terragrunt apply .tfplan --terragrunt-log-level debug --terragrunt-debug 2>&1 | tee ~/.tf-apply.log
-
     # Make the log output look like the actual underlying tofu/terraform log output
-    # export TG_LOG_FORMAT=bare
+    #export TG_LOG_FORMAT=bare
 
-    terragrunt apply -auto-approve 2>&1 | tee ~/.tf-apply.log
+    # As of Terragrunt v0.99
+    #
+    # With debug info
+    #terragrunt run --all apply --non-interactive --log-level debug --  2>&1 | tee ~/.tf-apply.log
+    #
+    terragrunt run --all apply --non-interactive --  2>&1 | tee ~/.tf-apply.log
+}
 
-
+apply_and_show_json() {
+    # As of Terragrunt v0.99
+    # Format Terragrunt logs and terraform/tofu output in json
+    terragrunt run --all apply --non-interactive --log-level debug --log-format json -- -json 2>&1 | tee ~/.tf-apply.log.json | jq '.'
 }
 
 show_usage() {
@@ -109,18 +108,18 @@ show_usage() {
 Usage: $0 arg
 
 Args with their long-forms
-        -p|--plan (get -update, validate, plan)
-        -A|--apply (apply)
-        -x|--execute (equivalent to -p -A)
+        -p|--plan (upgrade, validate, plan)
+        -a|--apply (apply)
+        -x|--execute (equivalent to -p -a)
+        -j|--apply-and-show-json (apply, with debugging on, with output logs as json)
         -f|--format
-        # After an "apply"
-        -i|--show-vars
+        -i|--show-inputs
         -o|--show-output
         # Destructive
         -D|--destroy (terraform destroy -auto-approve)
         -R|--destroy-and-remove-files (-D and remove terraform and terragrunt caches)
         #
-        -u|--user (show AWS user)
+        -U|--user (show user) TODO: update for the new code and providers
         #
         -h|--help
 EOF
@@ -139,17 +138,21 @@ while [[ $# -gt 0 ]]; do
     case $key in
         -p|--plan)
             shift
-            update
+            upgrade
             validate
             plan
             ;;
-        -A|--apply)
+        -a|--apply)
             shift
             apply
             ;;
+        -j|--apply-and-show-json)
+            shift
+            apply_and_show_json
+            ;;
         -x|--execute)
             shift
-            update
+            upgrade
             validate
             plan
             apply
@@ -158,21 +161,21 @@ while [[ $# -gt 0 ]]; do
             shift
             format
             ;;
-	-h|--help)
+	      -h|--help)
             show_usage
             shift
             ;;
-        -i|--show-vars)
+        -i|--show-inputs)
             shift
-            show-vars
+            show-inputs
             ;;
         -o|--show-output)
             shift
             show-output
             ;;
-        -u|--update)
+        -u|--upgrade)
             shift
-            update
+            upgrade
             ;;
         -D|--destroy)
             shift
