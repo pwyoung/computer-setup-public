@@ -1,6 +1,12 @@
 #!/bin/bash
 # Quickly search through source code
-grep -r --exclude-dir=.venv --exclude-dir=.git --exclude-dir=.terragrunt-cache --exclude=*.{pdf,jpg,jpeg,png,zip,tar,gz,exe,bin,mp4,mp3} --color "$@"
+grep -r \
+     --exclude-dir=.venv \
+     --exclude-dir=.git \
+     --exclude-dir=.terragrunt-cache \
+     --exclude-dir=.claude \
+     --exclude=*.{pdf,jpg,jpeg,png,zip,tar,gz,exe,bin,mp4,mp3} \
+     --color "$@"
 
 
 
