@@ -6,6 +6,7 @@
 # - Make it easy to run some simple or more complex
 #   sets of commands quickly (e.g. tg -A)
 
+#set -x
 set -e
 
 # Check if we are inside a git repository
@@ -20,7 +21,7 @@ fi
 # Confirm that terragrunt is version 0.99 or higher
 TG_VERSION=$(terragrunt --version)
 [[ $(echo "$TG_VERSION" | grep -oE '[0-9]+\.[0-9]+' | head -n1) > 0.98 ]] && echo "TG Version OK" || echo "TG Version Too Old"
-exit 1
+
 
 # "remove all terraform/terragrunt files"
 remove-files() {
