@@ -1,135 +1,148 @@
 #!/bin/bash
 
-# --- Configuration ---
-CORE_EXCLUDES=("main" "master" "develop" "HEAD" "production")
-EXTRA_EXCLUDES=("staging")
-DELETE_PATTERNS=("feature-*" "bugfix-*" "tmp-*")
+# GOAL
+# - Let the user create a script that will delete unwanted git branches
 
-STAGING_SCRIPT="$HOME/git-cleanup.sh"
+# ==============================================================================
+# LOGIC SUMMARY:
+# - HIDE:
+#    - Exact matches in HIDE_LIST (never shown in UI).
+# - When creating the UI, the code guesses at what to delete or keep.
+#   - "DELETE": Branches merged to 'main' OR matching DELETE_PATTERNS (*).
+#   - "KEEP":  Current branch OR matches in CORE_EXCLUDES (exact names).
+# ==============================================================================
+
+# --- Configuration ---
+HIDE_LIST=("main" "master") # Branches to remove from the UI entirely
+
+CORE_EXCLUDES=("HEAD" "develop" "production")
+EXTRA_EXCLUDES=("staging")
+#DELETE_PATTERNS=("feature-*" "bugfix-*" "tmp-*")
+DELETE_PATTERNS=("tmp-*")
+
+STAGING_SCRIPT="$HOME/git-cleanup-commands.sh"
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-echo -e "${BOLD}Synchronizing with remotes...${NC}"
+echo -e "${BOLD}Step 1: Synchronizing with remotes...${NC}"
 git fetch --all --prune > /dev/null 2>&1
 
-# 1. Gather Branches
-# Get the current branch name to protect it
+# 1. Gather Context
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
-# Gather Remote Branches (Filter out symbolic HEAD)
-REMOTE_LIST=$(git branch -r | grep -v -- "->" | sed 's/^[ *]*//')
+# Identify merged status
 
-# Gather Local Branches
+MERGED_LOCAL=$(git branch --merged main | sed 's/^[ *]*//')
+MERGED_REMOTE=$(git branch -r --merged main | sed 's/^[ *]*//')
+
+# Gather branch lists
+REMOTE_LIST=$(git branch -r | grep -v -- "->" | sed 's/^[ *]*//')
 LOCAL_LIST=$(git branch | sed 's/^[ *]*//')
 
-if [ -z "$REMOTE_LIST" ] && [ -z "$LOCAL_LIST" ]; then
-    echo "No branches found."
-    exit 0
-fi
-
-# 2. Build Checklist items
-CHECKLIST_ITEMS=()
-
-# Function to determine if a branch should be checked by default
-get_status() {
+# 2. Status Logic Function
+get_default_status() {
     local name=$1
-    # Protect current branch
+    local is_merged=$2
+
+    # PROTECT: Current and Core
     [[ "$name" == "$CURRENT_BRANCH" ]] && echo "off" && return
-    
-    # Check exact excludes
     for p in "${CORE_EXCLUDES[@]}" "${EXTRA_EXCLUDES[@]}"; do
         [[ "$name" == "$p" ]] && echo "off" && return
     done
-    
-    # Check delete patterns
+
+    # DELETE: Merged or Pattern match
+    [[ "$is_merged" == "true" ]] && echo "on" && return
     for p in "${DELETE_PATTERNS[@]}"; do
         local regex="^${p//\*/.*}$"
         [[ "$name" =~ $regex ]] && echo "on" && return
     done
-    
-    echo "on"
+
+    echo "off"
 }
 
-# Add Locals to list
+# 3. Hidden Filter Function
+is_hidden() {
+    local name=$1
+    for h in "${HIDE_LIST[@]}"; do
+        [[ "$name" == "$h" ]] && return 0 # Is hidden
+    done
+    return 1 # Not hidden
+}
+
+CHECKLIST_ITEMS=()
+
+# 4. Build List: Locals
 while read -r line; do
     [ -z "$line" ] && continue
-    STATUS=$(get_status "$line")
+
+    # SKIP if in HIDE_LIST
+    is_hidden "$line" && continue
+
+    IS_MERGED="false"
+    [[ "$MERGED_LOCAL" == *"$line"* ]] && IS_MERGED="true"
+    STATUS=$(get_default_status "$line" "$IS_MERGED")
+
     DESC="[LOCAL]"
-    [[ "$line" == "$CURRENT_BRANCH" ]] && DESC="[LOCAL] *CURRENT*"
-    CHECKLIST_ITEMS+=("LOCAL:$line" "$DESC $line" "$STATUS")
+    [[ "$IS_MERGED" == "true" ]] && DESC="[MERGED]"
+    [[ "$line" == "$CURRENT_BRANCH" ]] && DESC="[CURRENT]"
+    CHECKLIST_ITEMS+=("LOCAL:$line" "$DESC" "$STATUS")
 done <<< "$LOCAL_LIST"
 
-# Add Remotes to list
+# 5. Build List: Remotes
 while read -r line; do
     [ -z "$line" ] && continue
     BRANCH_NAME_ONLY="${line#*/}"
-    STATUS=$(get_status "$BRANCH_NAME_ONLY")
-    CHECKLIST_ITEMS+=("REMOTE:$line" "[REMOTE] $line" "$STATUS")
+
+    # SKIP if in HIDE_LIST
+    is_hidden "$BRANCH_NAME_ONLY" && continue
+
+    IS_MERGED="false"
+    [[ "$MERGED_REMOTE" == *"$line"* ]] && IS_MERGED="true"
+    STATUS=$(get_default_status "$BRANCH_NAME_ONLY" "$IS_MERGED")
+
+    DESC="[REMOTE]"
+    [[ "$IS_MERGED" == "true" ]] && DESC="[REMOTE:MERGED]"
+    CHECKLIST_ITEMS+=("REMOTE:$line" "$DESC $line" "$STATUS")
 done <<< "$REMOTE_LIST"
 
-# 3. The TUI (whiptail)
-DESC="INSTRUCTIONS:\n"
-DESC+="  - [X] CHECKED:   Will be added to deletion script.\n"
-DESC+="  - [ ] UNCHECKED: Will be ignored (kept).\n\n"
-DESC+="Note: Asterisk patterns (e.g. 'feature-*') are checked by default.\n"
-DESC+="Current branch ($CURRENT_BRANCH) is unchecked by default."
-
-SELECTED=$(whiptail --title "Git Local & Remote Cleanup" \
-    --checklist "$DESC" \
-    25 100 15 \
+# 6. The TUI
+SELECTED=$(whiptail --title "Git Cleanup Pro" \
+    --checklist "Checked [X] = Delete | Unchecked [ ] = Keep\nStaging script: $STAGING_SCRIPT" \
+    25 110 15 \
     "${CHECKLIST_ITEMS[@]}" \
     3>&1 1>&2 2>&3)
 
-if [ $? -ne 0 ]; then
-    echo -e "\nOperation cancelled."
-    exit 0
-fi
+[[ $? -ne 0 ]] && echo -e "\nCancelled." && exit 0
 
-# 4. Generate the Staging Script
+# 7. Generate Script
 echo "#!/bin/bash" > "$STAGING_SCRIPT"
-echo "echo -e '${RED}${BOLD}Executing Deletions...${NC}'" >> "$STAGING_SCRIPT"
 chmod +x "$STAGING_SCRIPT"
 
 DELETION_COUNT=0
 for item in $SELECTED; do
-    # Remove quotes
     item=$(echo "$item" | sed "s/'//g; s/\"//g")
     TYPE="${item%%:*}"
     VALUE="${item#*:}"
-    
+
     if [ "$TYPE" == "LOCAL" ]; then
-        echo "echo -n 'Deleting local branch: $VALUE... '" >> "$STAGING_SCRIPT"
-        # Using -D to force delete in case it hasn't been merged
-        echo "git branch -D \"$VALUE\" && echo 'SUCCESS' || echo 'FAILED'" >> "$STAGING_SCRIPT"
+        echo "git branch -d \"$VALUE\" 2>/dev/null || git branch -D \"$VALUE\"" >> "$STAGING_SCRIPT"
     else
-        REMOTE="${VALUE%%/*}"
-        B_PATH="${VALUE#*/}"
-        echo "echo -n 'Deleting remote branch: $B_PATH from $REMOTE... '" >> "$STAGING_SCRIPT"
-        echo "git push \"$REMOTE\" --delete \"$B_PATH\" && echo 'SUCCESS' || echo 'FAILED'" >> "$STAGING_SCRIPT"
+        echo "git push \"${VALUE%%/*}\" --delete \"${VALUE#*/}\"" >> "$STAGING_SCRIPT"
     fi
     ((DELETION_COUNT++))
 done
 
-# 5. Final Confirmation
+# 8. Review
 clear
-if [ "$DELETION_COUNT" -eq 0 ]; then
-    echo "No branches selected."
-    rm -f "$STAGING_SCRIPT"
-    exit 0
-fi
+[[ "$DELETION_COUNT" -eq 0 ]] && echo "No selections." && rm -f "$STAGING_SCRIPT" && exit 0
 
-echo -e "${GREEN}${BOLD}STAGING SCRIPT GENERATED:${NC} $STAGING_SCRIPT"
-echo "----------------------------------------------------------------------"
+echo -e "${GREEN}STAGED COMMANDS:${NC} $STAGING_SCRIPT"
+echo "---------------------------------------------------"
 cat "$STAGING_SCRIPT"
-echo "----------------------------------------------------------------------"
-echo -e "\n${BOLD}Total: $DELETION_COUNT deletions (local and remote) queued.${NC}"
-read -p "Execute script now? (y/N): " confirm
+echo "---------------------------------------------------"
+read -p "Run these $DELETION_COUNT deletions? (y/N): " confirm
 
-if [[ "$confirm" =~ ^[Yy]$ ]]; then
-    bash "$STAGING_SCRIPT"
-    echo -e "\n${GREEN}Done.${NC}"
-else
-    echo -e "\nCancelled. Script remains at $STAGING_SCRIPT"
-fi
+[[ "$confirm" =~ ^[Yy]$ ]] && bash "$STAGING_SCRIPT" || echo "Aborted."
+
