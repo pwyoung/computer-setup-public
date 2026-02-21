@@ -40,8 +40,19 @@ show-user() {
 }
 
 destroy() {
-    time terragrunt destroy -auto-approve 2>&1 | tee ~/.tf-destroy.log
-    rm -f .tfplan
+
+    if [[ "${_FORCE_DELETE:-}" == "YES" ]]; then
+        echo "FORCE delete enabled; skipping confirmation."
+    else
+        read -r -p "Really destroy all Terragrunt modules? Type Y to continue: " ans
+        if [[ "$ans" != "Y" ]]; then
+            echo "Aborting."
+            exit 1
+        fi
+    fi
+
+    TG_NON_INTERACTIVE=1 terragrunt run --all destroy -- 2>&1 | tee ~/.tf-destroy.log
+
 }
 
 show-output() {
