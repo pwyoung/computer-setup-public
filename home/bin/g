@@ -1,12 +1,24 @@
 #!/bin/bash
 # Quickly search through source code
-grep -r \
-     --exclude-dir=.venv \
-     --exclude-dir=.git \
-     --exclude-dir=.terragrunt-cache \
-     --exclude-dir=.claude \
-     --exclude=*.{pdf,jpg,jpeg,png,zip,tar,gz,exe,bin,mp4,mp3} \
-     --color "$@"
 
+run_grep() {
+    if command -v rg &>/dev/null; then
+        # ripgrep handles globs differently and ignores .gitignore by default.
+        # We use -g to exclude patterns.
+        rg --hidden \
+           -g '!{.venv,.git,.terragrunt-cache,.claude}' \
+           -g '!*.{pdf,jpg,jpeg,png,zip,tar,gz,exe,bin,mp4,mp3}' \
+           --color=always "$@"
+    else
+        # Standard grep syntax
+        grep -r \
+             --exclude-dir=.venv \
+             --exclude-dir=.git \
+             --exclude-dir=.terragrunt-cache \
+             --exclude-dir=.claude \
+             --exclude='*.{pdf,jpg,jpeg,png,zip,tar,gz,exe,bin,mp4,mp3}' \
+             --color=always "$@"
+    fi
+}
 
-
+run_grep "$@"
