@@ -1,5 +1,6 @@
 if uname -a | grep Darwin >/dev/null; then
   ls -ltrG $@
 else
-  ls --color=auto -ltr $@
+  #ls -ltr --color=auto $@
+  ls -ltr --color $@
 fi
