@@ -3,12 +3,19 @@
 
 run_grep() {
     if command -v rg &>/dev/null; then
-        # ripgrep handles globs differently and ignores .gitignore by default.
-        # We use -g to exclude patterns.
-        rg --hidden \
+        # -uu is "unrestricted": it follows symlinks, searches hidden,
+        # and ignores .gitignore files.
+        rg -uu \
            -g '!{.venv,.git,.terragrunt-cache,.claude}' \
            -g '!*.{pdf,jpg,jpeg,png,zip,tar,gz,exe,bin,mp4,mp3}' \
            --color=always "$@"
+#    if command -v rg &>/dev/null; then
+#        # ripgrep handles globs differently and ignores .gitignore by default.
+#        # We use -g to exclude patterns.
+#        rg --hidden \
+#           -g '!{.venv,.git,.terragrunt-cache,.claude}' \
+#           -g '!*.{pdf,jpg,jpeg,png,zip,tar,gz,exe,bin,mp4,mp3}' \
+#           --color=always "$@"
     else
         # Standard grep syntax
         grep -r \
