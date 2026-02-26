@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+import subprocess
+import sys
+import os
+
+# --- CONFIGURATION ---
+# Add or remove directory/file names you want to skip in the output
+EXCLUSIONS = ['.git', '.venv', '.env', 'node_modules', '__pycache__', '.idea', '.vscode']
+# ---------------------
+
+def main():
+    # 1. Verify we are in a Git repo and switch to the repository root
+    try:
+        repo_root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
+        os.chdir(repo_root)
+    except subprocess.CalledProcessError:
+        print("Error: You must run this script from inside a Git repository.", file=sys.stderr)
+        sys.exit(1)
+
+    # 2. Get the list of all ignored files and directories
+    try:
+        ignored_output = subprocess.check_output(
+            ['git', 'ls-files', '--others', '--ignored', '--exclude-standard'],
+            text=True
+        )
+    except subprocess.CalledProcessError:
+        print("Error: Failed to list ignored files.", file=sys.stderr)
+        sys.exit(1)
+
+    ignored_items = [line for line in ignored_output.splitlines() if line]
+
+    # Dictionary to hold the mapping -> { "gitignore_path": ["ignored_file1", ...] }
+    ignore_map = {}
+
+    # 3. Process each item and map it to its source .gitignore
+    for item in ignored_items:
+        # Check if the file/path contains any of our exclusions
+        parts = item.replace('\\', '/').split('/')
+        if any(ex in parts for ex in EXCLUSIONS):
+            continue
+
+        # Use `git check-ignore -v -z` to safely find the source file.
+        # -z ensures null-terminated output, making it safe for files with spaces.
+        cmd = ['git', 'check-ignore', '-v', '-z', item]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode == 0 and result.stdout:
+            # Output format: <source>\0<linenum>\0<pattern>\0<pathname>\0
+            parsed = result.stdout.split('\0')
+            if len(parsed) >= 4:
+                source_file = parsed[0]
+
+                # If the ignore comes from a global config, try to make it relative
+                if os.path.isabs(source_file):
+                    try:
+                        source_file = os.path.relpath(source_file, repo_root)
+                    except ValueError:
+                        pass # Retain absolute path if relative path isn't possible (e.g., across drives)
+
+                if source_file not in ignore_map:
+                    ignore_map[source_file] = []
+                ignore_map[source_file].append(item)
+
+    # 4. Generate the YAML output
+    print("ignored:")
+    if not ignore_map:
+        print("  {}")
+        return
+
+    for source_file in sorted(ignore_map.keys()):
+        print(f"  {source_file}:")
+        for i in sorted(ignore_map[source_file]):
+            print(f"    - {i}")
+
+if __name__ == "__main__":
+    main()
