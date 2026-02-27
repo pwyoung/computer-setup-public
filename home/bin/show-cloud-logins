@@ -1,0 +1,78 @@
+#!/bin/bash
+
+show-user() {
+    # Define colors
+    local BOLD='\033[1m'
+    local BLUE='\033[34m'
+    local ORANGE='\033[33m'
+    local CYAN='\033[36m'
+    local RED='\033[31m'
+    local RESET='\033[0m'
+
+    echo -e "${BOLD}--- Cloud Identity Report ---${RESET}"
+
+    # --- AWS ---
+    echo -e "${ORANGE}AWS${RESET}"
+    if command -v aws &> /dev/null; then
+        AWS_USER=$(aws sts get-caller-identity --query "Arn" --output text 2>/dev/null)
+        if [ $? -eq 0 ]; then
+            echo -e "  ${BOLD}User:${RESET} $AWS_USER"
+
+            # Simplified RAM check to prevent syntax errors
+            RAM_VAL=$(aws ram list-resources --resource-owner SELF --query 'length(resources)' --output text 2>/dev/null)
+            if [ "$RAM_VAL" != "0" ] && [ "$RAM_VAL" != "None" ] && [ -n "$RAM_VAL" ]; then
+                echo "  Resources (RAM): Active ($RAM_VAL items)"
+            fi
+        else
+            echo -e "  ${RED}Status: Not logged in${RESET}"
+        fi
+    else
+        echo "  Status: CLI not installed"
+    fi
+
+    echo -e "${CYAN}----------------------------${RESET}"
+
+    # --- GCP ---
+    echo -e "${BLUE}Google Cloud${RESET}"
+    if command -v gcloud &> /dev/null; then
+        G_ACCOUNT=$(gcloud auth list --filter="status:ACTIVE" --format="value(account)" 2>/dev/null)
+        if [ -n "$G_ACCOUNT" ]; then
+            echo -e "  ${BOLD}Account:${RESET} $G_ACCOUNT"
+            echo -e "  ${BOLD}Project:${RESET} $(gcloud config get-value project 2>/dev/null)"
+        else
+            echo -e "  ${RED}gcloud: Not logged in${RESET}"
+        fi
+
+        if gcloud auth application-default print-access-token &>/dev/null; then
+            echo -e "  ${BOLD}ADC Status:${RESET} Active"
+        else
+            echo -e "  ${RED}ADC Status: Not configured${RESET}"
+        fi
+    else
+        echo "  Status: CLI not installed"
+    fi
+
+    echo -e "${CYAN}----------------------------${RESET}"
+
+    # --- Azure ---
+    echo -e "${BLUE}Azure${RESET}"
+    if command -v az &> /dev/null; then
+        # Faster check: If the azure token file is missing or empty, you aren't logged in.
+        if [ ! -f "$HOME/.azure/accessTokens.json" ] || [ ! -s "$HOME/.azure/accessTokens.json" ]; then
+             echo -e "  ${RED}Status: Not logged in${RESET}"
+        else
+            AZ_INFO=$(az account show --output json 2>/dev/null)
+            if [ $? -eq 0 ] && [ -n "$AZ_INFO" ]; then
+                echo -e "  ${BOLD}User:${RESET} $(echo "$AZ_INFO" | jq -r '.user.name')"
+                echo -e "  ${BOLD}Subscription:${RESET} $(echo "$AZ_INFO" | jq -r '.name')"
+            else
+                echo -e "  ${RED}Status: Session expired or invalid${RESET}"
+            fi
+        fi
+    else
+        echo "  Status: CLI not installed"
+    fi
+    echo -e "${BOLD}-----------------------------${RESET}"
+}
+
+show-user

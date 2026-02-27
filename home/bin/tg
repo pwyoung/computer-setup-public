@@ -32,13 +32,6 @@ remove-files() {
     rm ./*# ./*~
 }
 
-# TODO: update this for all clouds, based on the active config.
-show-user() {
-    # "Check that the AWS ClI is working, and which user is connecting"
-    aws sts get-caller-identity | jq .
-    aws ram list-resources  --resource-owner SELF
-}
-
 destroy() {
 
     if [[ "${_FORCE_DELETE:-}" == "YES" ]]; then
@@ -138,8 +131,6 @@ Args with their long-forms
         -D|--destroy (terraform destroy -auto-approve)
         -R|--destroy-and-remove-files (-D and remove terraform and terragrunt caches)
         #
-        -U|--user (show user) TODO: update for the new code and providers
-        #
         -h|--help
 EOF
 }
@@ -208,10 +199,6 @@ while [[ $# -gt 0 ]]; do
             shift
             destroy
             remove-files
-            ;;
-        -U|--user)
-            shift
-            show-user
             ;;
         *)
             echo "unknown option '$1'"
