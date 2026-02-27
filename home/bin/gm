@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# Check if the number of arguments is zero
+if [ $# -eq 0 ]; then
+    echo "Error: No commit message provided."
+    exit 1
+fi
+
+MSG="$@"
+
+echo "git commit -m '$MSG'"
+git commit -m "$MSG"
+
+echo "git push"
+git push
+
+
