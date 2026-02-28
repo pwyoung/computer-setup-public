@@ -1,0 +1,239 @@
+#!/bin/bash
+
+# Configuration
+BASE_DIR="$HOME/OBJECT-TREE"
+AWS_ROOT="$BASE_DIR/aws-s3"
+GCP_ROOT="$BASE_DIR/gcp-gcs"
+AZURE_ROOT="$BASE_DIR/azure-blob"
+
+# --- Dependency Management ---
+
+install_dependencies() {
+    echo "--- Checking System Dependencies ---"
+
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$ID
+        OS_LIKE=$ID_LIKE
+    else
+        echo "Error: Could not detect distribution via /etc/os-release."
+        exit 1
+    fi
+
+    # Enable allow_other for all FUSE mounts (required by s3fs, gcsfuse, blobfuse2)
+    if ! grep -q "^user_allow_other" /etc/fuse.conf 2>/dev/null; then
+        echo "Enabling user_allow_other in /etc/fuse.conf..."
+        echo "user_allow_other" | sudo tee -a /etc/fuse.conf > /dev/null
+    fi
+
+    # Logic for Pop!_OS, Ubuntu, Debian
+    if [[ "$OS" =~ ^(ubuntu|debian|pop|raspbian)$ ]] || [[ "$OS_LIKE" =~ "ubuntu" ]]; then
+
+        if ! command -v aws &> /dev/null; then
+            echo "Installing awscli..."
+            sudo apt-get install -y awscli
+        fi
+
+        if ! command -v s3fs &> /dev/null; then
+            echo "Installing s3fs..."
+            sudo apt-get install -y s3fs
+        fi
+
+        if ! command -v gcsfuse &> /dev/null || ! command -v gcloud &> /dev/null; then
+            echo "Installing gcsfuse and google-cloud-cli..."
+            # Google's repo often lags. If we are on 'noble' (Ubuntu 24.04/Pop equivalent),
+            # we fallback to 'jammy' (22.04) for the repo string.
+            CODENAME=$(lsb_release -c -s)
+            if [ "$CODENAME" == "noble" ] || [ "$OS" == "pop" ]; then
+                CODENAME="jammy"
+            fi
+            curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/cloud.google.gpg
+            echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt gcsfuse-$CODENAME main" | sudo tee /etc/apt/sources.list.d/gcsfuse.list
+            echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list
+            sudo apt-get update
+            sudo apt-get install -y gcsfuse google-cloud-cli
+        fi
+
+        if ! command -v az &> /dev/null; then
+            echo "Installing Azure CLI..."
+            curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+        fi
+
+        if ! command -v blobfuse2 &> /dev/null; then
+            echo "Installing blobfuse2..."
+            curl -sSL https://packages.microsoft.com/keys/microsoft.asc \
+                | sudo gpg --dearmor --yes -o /usr/share/keyrings/microsoft.gpg
+            UBUNTU_VER=$(lsb_release -rs)
+            CODENAME=$(lsb_release -cs)
+            echo "deb [signed-by=/usr/share/keyrings/microsoft.gpg arch=amd64] https://packages.microsoft.com/ubuntu/${UBUNTU_VER}/prod ${CODENAME} main" \
+                | sudo tee /etc/apt/sources.list.d/microsoft-blobfuse2.list
+            sudo apt-get update
+            sudo apt-get install -y blobfuse2
+        fi
+
+        echo "All dependencies satisfied."
+    else
+        echo "Error: Auto-install not configured for $OS. Please install dependencies manually."
+        exit 1
+    fi
+}
+
+# --- Cloud Operations ---
+
+mount_buckets() {
+    install_dependencies
+    echo "--- Initializing Cloud Mounts ---"
+
+    # AWS S3 Setup
+    mkdir -p "$AWS_ROOT"
+    if command -v aws &> /dev/null; then
+        echo "Scanning AWS Buckets..."
+        # Note: If this fails, user likely needs to run 'aws configure'
+        buckets=$(aws s3api list-buckets --query "Buckets[].Name" --output text 2>/dev/null)
+        for bucket in $buckets; do
+            [ -z "$bucket" ] && continue
+            mount_point="$AWS_ROOT/$bucket"
+            mkdir -p "$mount_point"
+            if ! mountpoint -q "$mount_point"; then
+                s3fs "$bucket" "$mount_point" -o allow_other && echo "SUCCESS: Mounted AWS S3 -> $bucket"
+            else
+                echo "SKIP: $bucket already mounted."
+            fi
+        done
+    else
+        echo "WARN: AWS CLI found but not configured. Run 'aws configure'."
+    fi
+
+    # GCP GCS Setup
+    mkdir -p "$GCP_ROOT"
+    if command -v gcloud &> /dev/null; then
+        echo "Scanning GCP Buckets..."
+        # Note: If this fails, user likely needs to run 'gcloud auth login'
+        buckets=$(gcloud storage buckets list --format="value(name)" 2>/dev/null)
+        for bucket in $buckets; do
+            [ -z "$bucket" ] && continue
+            mount_point="$GCP_ROOT/$bucket"
+            mkdir -p "$mount_point"
+            if ! mountpoint -q "$mount_point"; then
+                gcsfuse --implicit-dirs "$bucket" "$mount_point" && echo "SUCCESS: Mounted GCP GCS -> $bucket"
+            else
+                echo "SKIP: $bucket already mounted."
+            fi
+        done
+    else
+        echo "WARN: GCP CLI found but not configured. Run 'gcloud auth login'."
+    fi
+
+    # Azure Blob Storage Setup
+    mkdir -p "$AZURE_ROOT"
+    if command -v az &> /dev/null; then
+        echo "Scanning Azure Blob Containers..."
+        # Note: If this fails, user likely needs to run 'az login'
+        # Enumerate all storage accounts across all subscriptions
+        accounts=$(az storage account list --query "[].{name:name,rg:resourceGroup}" --output tsv 2>/dev/null)
+        if [ -z "$accounts" ]; then
+            echo "WARN: No Azure storage accounts found or not logged in. Run 'az login'."
+        fi
+        while IFS=$'\t' read -r account_name resource_group; do
+            [ -z "$account_name" ] && continue
+            # Get account key for blobfuse2 authentication
+            account_key=$(az storage account keys list \
+                --account-name "$account_name" \
+                --resource-group "$resource_group" \
+                --query "[0].value" --output tsv 2>/dev/null)
+            if [ -z "$account_key" ]; then
+                echo "WARN: Could not retrieve key for storage account '$account_name'. Skipping."
+                continue
+            fi
+            # List containers in this storage account
+            containers=$(az storage container list \
+                --account-name "$account_name" \
+                --account-key "$account_key" \
+                --query "[].name" --output tsv 2>/dev/null)
+            for container in $containers; do
+                [ -z "$container" ] && continue
+                mount_point="$AZURE_ROOT/$account_name/$container"
+                mkdir -p "$mount_point"
+                if ! mountpoint -q "$mount_point"; then
+                    # Write a temporary blobfuse2 config file
+                    cfg_file=$(mktemp /tmp/blobfuse2-XXXXXX.yaml)
+                    cat > "$cfg_file" <<BLOBCFG
+allow-other: true
+logging:
+  type: syslog
+components:
+  - libfuse
+  - block_cache
+  - attr_cache
+  - azstorage
+libfuse:
+  attribute-expiration-sec: 120
+  entry-expiration-sec: 120
+  negative-entry-expiration-sec: 240
+block_cache:
+  block-size-mb: 4
+  mem-size-mb: 512
+attr_cache:
+  timeout-sec: 3600
+azstorage:
+  type: block
+  account-name: $account_name
+  account-key: $account_key
+  endpoint: https://$account_name.blob.core.windows.net
+  container: $container
+BLOBCFG
+                    blobfuse2 mount "$mount_point" --config-file="$cfg_file" \
+                        && echo "SUCCESS: Mounted Azure Blob -> $account_name/$container" \
+                        || echo "ERROR: Failed to mount $account_name/$container"
+                    # Remove config file (contains key — keep temp file lifetime short)
+                    rm -f "$cfg_file"
+                else
+                    echo "SKIP: $account_name/$container already mounted."
+                fi
+            done
+        done <<< "$accounts"
+    else
+        echo "WARN: Azure CLI not configured. Run 'az login'."
+    fi
+}
+
+cleanup() {
+    echo "--- Cleaning up all mounts ---"
+    if [ -d "$BASE_DIR" ]; then
+        # Find all directories that are currently mount points under BASE_DIR
+        find "$BASE_DIR" -mindepth 1 -maxdepth 3 -type d | while read -r dir; do
+            if mountpoint -q "$dir"; then
+                fusermount -u "$dir" && echo "Unmounted: $dir"
+            fi
+        done
+        # Delete the local folder structure
+        rm -rf "$AWS_ROOT" "$GCP_ROOT" "$AZURE_ROOT"
+        echo "Local mount points removed."
+    else
+        echo "Directory $BASE_DIR does not exist. Nothing to clean."
+    fi
+}
+
+# --- Main Logic ---
+
+# Check if any arguments were provided
+if [ $# -eq 0 ]; then
+    echo "Cloud Mount Tool"
+    echo "Usage: $0 [-b] [-t] [-c]"
+    echo "  -b : Build structure, install tools, and mount all buckets/containers"
+    echo "  -t : Run 'tree' on the mount directory"
+    echo "  -c : Cleanup (Unmount all and delete local directories)"
+    exit 1
+fi
+
+while getopts "btc" opt; do
+  case $opt in
+    b) mount_buckets ;;
+    t)
+       echo "--- Current Storage Tree ---"
+       tree "$BASE_DIR"
+       ;;
+    c) cleanup ;;
+    *) echo "Invalid option. Use -b, -t, or -c." ; exit 1 ;;
+  esac
+done
