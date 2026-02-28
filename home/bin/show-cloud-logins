@@ -56,21 +56,25 @@ show-user() {
 
     # --- Azure ---
     echo -e "${BLUE}Azure${RESET}"
+
     if command -v az &> /dev/null; then
-        # Faster check: If the azure token file is missing or empty, you aren't logged in.
-        if [ ! -f "$HOME/.azure/accessTokens.json" ] || [ ! -s "$HOME/.azure/accessTokens.json" ]; then
-             echo -e "  ${RED}Status: Not logged in${RESET}"
+        # Directly attempt to get account info.
+        # --query allows us to pull specific fields without needing external 'jq'
+        AZ_INFO=$(az account show --output json 2>/dev/null)
+
+        if [ $? -eq 0 ] && [ -n "$AZ_INFO" ]; then
+            # If az account show succeeds, the user is authenticated
+            USER_NAME=$(echo "$AZ_INFO" | jq -r '.user.name // "N/A"')
+            SUB_NAME=$(echo "$AZ_INFO" | jq -r '.name // "N/A"')
+
+            echo -e "  ${BOLD}User:${RESET} $USER_NAME"
+            echo -e "  ${BOLD}Subscription:${RESET} $SUB_NAME"
         else
-            AZ_INFO=$(az account show --output json 2>/dev/null)
-            if [ $? -eq 0 ] && [ -n "$AZ_INFO" ]; then
-                echo -e "  ${BOLD}User:${RESET} $(echo "$AZ_INFO" | jq -r '.user.name')"
-                echo -e "  ${BOLD}Subscription:${RESET} $(echo "$AZ_INFO" | jq -r '.name')"
-            else
-                echo -e "  ${RED}Status: Session expired or invalid${RESET}"
-            fi
+            # If the command fails, they are either logged out or the token is expired
+            echo -e "  ${RED}Status: Not logged in or session expired${RESET}"
         fi
     else
-        echo "  Status: CLI not installed"
+        echo -e "  ${RED}Status: CLI not installed${RESET}"
     fi
     echo -e "${BOLD}-----------------------------${RESET}"
 }
