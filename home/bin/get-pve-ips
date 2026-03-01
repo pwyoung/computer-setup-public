@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# get-pve-ips — list IPs of all running VMs on a Proxmox VE node via QEMU guest agent
+#
+# Usage: get-pve-ips [--wait [TIMEOUT_SECS]] [<pve-host>]
+#   --wait            Poll until all running VMs have IPs (default timeout: 300s)
+#   --wait TIMEOUT    Poll with a custom timeout in seconds
+#   pve-host          Proxmox host (default: 10.4.10.227)
+#
+# Examples:
+#   get-pve-ips
+#   get-pve-ips --wait
+#   get-pve-ips --wait 120
+#   get-pve-ips 10.4.10.227
+
+set -euo pipefail
+
+WAIT=false
+TIMEOUT=300
+PVE_HOST="10.4.10.227"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --wait)
+      WAIT=true
+      shift
+      if [[ $# -gt 0 && "$1" =~ ^[0-9]+$ ]]; then
+        TIMEOUT="$1"; shift
+      fi
+      ;;
+    *) PVE_HOST="$1"; shift ;;
+  esac
+done
+
+query() {
+  ssh "root@${PVE_HOST}" 'python3 -' <<'PYEOF'
+import subprocess, json, sys
+
+def pvesh(path):
+    r = subprocess.run(
+        ["pvesh", "get", path, "--output-format", "json"],
+        capture_output=True, text=True
+    )
+    if r.returncode != 0:
+        return None
+    try:
+        return json.loads(r.stdout)
+    except Exception:
+        return None
+
+vms = pvesh("/nodes/pve/qemu") or []
+vms = [v for v in vms if v.get("status") == "running"]
+vms.sort(key=lambda v: v.get("vmid", 0))
+
+if not vms:
+    print("No running VMs found.")
+    sys.exit(0)
+
+pending = 0
+for vm in vms:
+    vmid = vm["vmid"]
+    name = vm.get("name", f"vm-{vmid}")
+    data = pvesh(f"/nodes/pve/qemu/{vmid}/agent/network-get-interfaces")
+    if data is None:
+        print(f"  {vmid}  {name:<30} (guest agent not available)")
+        pending += 1
+        continue
+    ifaces = data.get("result", data) if isinstance(data, dict) else data
+    ips = []
+    for iface in (ifaces or []):
+        if iface.get("name", "") in ("lo",):
+            continue
+        for addr in iface.get("ip-addresses", []):
+            if addr.get("ip-address-type") == "ipv4":
+                ips.append(addr["ip-address"])
+    ip_str = ", ".join(ips) if ips else "(no IPv4)"
+    print(f"  {vmid}  {name:<30} {ip_str}")
+
+sys.exit(pending)
+PYEOF
+}
+
+if ! $WAIT; then
+  query
+  exit $?
+fi
+
+echo "Polling for VM IPs (timeout: ${TIMEOUT}s) ..."
+DEADLINE=$(( $(date +%s) + TIMEOUT ))
+INTERVAL=10
+
+while true; do
+  NOW=$(date +%s)
+  if (( NOW >= DEADLINE )); then
+    echo "Timeout after ${TIMEOUT}s — some VMs may still be booting."
+    query || true
+    exit 1
+  fi
+
+  if query; then
+    exit 0
+  fi
+
+  REMAINING=$(( DEADLINE - NOW ))
+  echo "  (retrying in ${INTERVAL}s, ${REMAINING}s remaining)"
+  sleep "$INTERVAL"
+done
