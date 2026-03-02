@@ -77,3 +77,6 @@ export PATH=$DEDUPLICATED_ORDER_PRESERVED_PATH
 ### MANAGED BY RANCHER DESKTOP START (DO NOT EDIT)
 export PATH="/Users/pyoung/.rd/bin:$PATH"
 ### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)
+
+# Created by `pipx` on 2026-03-02 02:08:10
+export PATH="$PATH:/home/pyoung/.local/bin"
