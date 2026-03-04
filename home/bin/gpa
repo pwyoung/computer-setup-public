@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# GOAL:
+# - Assume git commit has been run already
+# - Put the current branch to all remotes
+
+# 1. Show remotes for context
+echo "--- Current Remotes ---"
+git remote -v
+
+# 2. Identify the current branch
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+echo -e "\n--- Current Branch: $CURRENT_BRANCH ---"
+
+# 3. Get a list of all remote names
+REMOTES=$(git remote)
+
+# 4. Loop through each remote and push
+for REMOTE in $REMOTES; do
+    echo -e "\nPushing to $REMOTE..."
+    git push "$REMOTE" "$CURRENT_BRANCH"
+done
+
+echo -e "\nDone! All remotes updated."
