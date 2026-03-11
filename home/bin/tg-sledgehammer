@@ -1,0 +1,35 @@
+#!/bin/bash
+
+################################################################################
+# SCRIPT: recreate_unit.sh
+# DESCRIPTION: Automatically taints ALL resources managed in the current
+#              Terragrunt directory.
+################################################################################
+
+set -e
+
+echo "--- [Target: $(pwd)] ---"
+
+# 1. Get resources (Removed the invalid -lock and -input flags)
+RESOURCES=$(terragrunt run -- state list 2>/dev/null)
+
+if [ -z "$RESOURCES" ]; then
+  echo "Error: No resources found or state is empty."
+  exit 1
+fi
+
+# Count resources
+COUNT=$(echo "$RESOURCES" | grep -c '^')
+echo "Found $COUNT resources to recreate."
+
+# 2. Taint each resource
+for res in $RESOURCES; do
+  echo "Tainting -> $res"
+  # Taint DOES accept the -allow-missing flag in OpenTofu
+  terragrunt run -- taint -allow-missing "$res" > /dev/null 2>&1
+done
+
+#echo "--- [Done] ---"
+#echo "All $COUNT resources have been tainted."
+#echo "Run: terragrunt apply -auto-approve"
+terragrunt apply -auto-approve
