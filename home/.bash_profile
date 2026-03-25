@@ -80,3 +80,5 @@ export PATH="/Users/pyoung/.rd/bin:$PATH"
 
 # Created by `pipx` on 2026-03-02 02:08:10
 export PATH="$PATH:/home/pyoung/.local/bin"
+
+. "$HOME/.local/bin/env"

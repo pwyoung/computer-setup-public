@@ -6,23 +6,8 @@ from datetime import datetime
 from pathlib import Path
 
 def is_hidden(path):
-<<<<<<< HEAD
-    """Skip hidden directories like .git, but allow hidden files like .env"""
-    
-    # 1. Skip if any of the parent folders start with a dot (e.g., .git/config)
-    if any(part.startswith('.') for part in path.parent.parts):
-        return True
-        
-    # 2. Skip specific hidden OS files you generally never want to modify
-    if path.name in ['.DS_Store', '.npmrc', '.bash_history', '.zshrc']:
-        return True
-        
-    # Otherwise, it's safe to process (this allows files like .env to pass)
-    return False
-=======
     """Check if any part of the file path is a hidden directory/file."""
     return any(part.startswith('.') for part in path.parts)
->>>>>>> 21f8087 (Fix _replace_all_strings and add _rs)
 
 def main():
     # Check for correct number of arguments
@@ -37,13 +22,8 @@ def main():
     print("Finding files...")
 
     base_dir = Path('.')
-<<<<<<< HEAD
-    
-    # Gather all files, excluding hidden directories
-=======
 
     # Gather all files, excluding hidden ones
->>>>>>> 21f8087 (Fix _replace_all_strings and add _rs)
     all_files = [f for f in base_dir.rglob('*') if f.is_file() and not is_hidden(f)]
     file_count = len(all_files)
 
@@ -56,43 +36,21 @@ def main():
         print("Operation cancelled.")
         sys.exit(0)
 
-<<<<<<< HEAD
-    # Setup backup directory in $HOME/.backups/
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_dirname = f"backup_{timestamp}"
-    backup_dir = Path.home() / '.backups' / backup_dirname
-    
-    # Create the ~/.backups/backup_YYYYMMDD_HHMMSS directory (and parents if needed)
-=======
     # Setup backup directory with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_dirname = f"backup_{timestamp}"
     backup_dir = base_dir / backup_dirname
->>>>>>> 21f8087 (Fix _replace_all_strings and add _rs)
     backup_dir.mkdir(parents=True, exist_ok=True)
 
     modified_count = 0
 
     for filepath in all_files:
-<<<<<<< HEAD
-        # Prevent the script from processing files inside the backup directory 
-        try:
-            if filepath.resolve().is_relative_to(backup_dir.resolve()):
-                continue
-        except AttributeError:
-            # Fallback for Python versions older than 3.9 where is_relative_to doesn't exist
-            if str(backup_dir.resolve()) in str(filepath.resolve()):
-                continue
-
-        # Try to read the file. Skip binary files.
-=======
         # Skip the backup directory we just created
         if backup_dirname in filepath.parts:
             continue
 
         # Try to read the file. If it throws a UnicodeDecodeError,
         # it is likely a binary file (like an image or compiled code), so we skip it.
->>>>>>> 21f8087 (Fix _replace_all_strings and add _rs)
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -102,17 +60,10 @@ def main():
             print(f"Error reading {filepath}: {e}")
             continue
 
-<<<<<<< HEAD
-        # Check if the exact string exists
-        if find_str in content:
-            
-            # Create backup directory structure mirroring the working directory
-=======
         # Check if the exact string exists (literal check, ignores regex rules)
         if find_str in content:
 
             # Create backup directory structure
->>>>>>> 21f8087 (Fix _replace_all_strings and add _rs)
             backup_path = backup_dir / filepath
             backup_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -122,11 +73,7 @@ def main():
             # Perform literal string replacement
             new_content = content.replace(find_str, replace_str)
 
-<<<<<<< HEAD
-            # Write the modified content back
-=======
             # Write the modified content back to the original file
->>>>>>> 21f8087 (Fix _replace_all_strings and add _rs)
             try:
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write(new_content)
@@ -146,8 +93,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-<<<<<<< HEAD
-
-    
-=======
->>>>>>> 21f8087 (Fix _replace_all_strings and add _rs)
