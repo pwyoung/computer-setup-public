@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+
+import sys
+import shutil
+from datetime import datetime
+from pathlib import Path
+
+def is_hidden(path):
+    """Skip hidden directories like .git, but allow hidden files like .env"""
+    
+    # 1. Skip if any of the parent folders start with a dot (e.g., .git/config)
+    if any(part.startswith('.') for part in path.parent.parts):
+        return True
+        
+    # 2. Skip specific hidden OS files you generally never want to modify
+    if path.name in ['.DS_Store', '.npmrc', '.bash_history', '.zshrc']:
+        return True
+        
+    # Otherwise, it's safe to process (this allows files like .env to pass)
+    return False
+
+def main():
+    # Check for correct number of arguments
+    if len(sys.argv) != 3:
+        print(f"Usage: python {sys.argv[0]} 'string_to_find' 'string_to_replace'")
+        print(f"Example: python {sys.argv[0]} 'old.text' 'new-text-with-hyphen'")
+        sys.exit(1)
+
+    find_str = sys.argv[1]
+    replace_str = sys.argv[2]
+
+    print("Finding files...")
+
+    base_dir = Path('.')
+    
+    # Gather all files, excluding hidden directories
+    all_files = [f for f in base_dir.rglob('*') if f.is_file() and not is_hidden(f)]
+    file_count = len(all_files)
+
+    print(f"This will search through ~{file_count} files in the current directory and subdirectories.")
+    print(f"Finding:    '{find_str}'")
+    print(f"Replacing with: '{replace_str}'")
+
+    confirm = input("Do you want to continue? (y/N): ")
+    if confirm.lower() != 'y':
+        print("Operation cancelled.")
+        sys.exit(0)
+
+    # Setup backup directory in $HOME/.backups/
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_dirname = f"backup_{timestamp}"
+    backup_dir = Path.home() / '.backups' / backup_dirname
+    
+    # Create the ~/.backups/backup_YYYYMMDD_HHMMSS directory (and parents if needed)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    modified_count = 0
+
+    for filepath in all_files:
+        # Prevent the script from processing files inside the backup directory 
+        try:
+            if filepath.resolve().is_relative_to(backup_dir.resolve()):
+                continue
+        except AttributeError:
+            # Fallback for Python versions older than 3.9 where is_relative_to doesn't exist
+            if str(backup_dir.resolve()) in str(filepath.resolve()):
+                continue
+
+        # Try to read the file. Skip binary files.
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            continue
+        except Exception as e:
+            print(f"Error reading {filepath}: {e}")
+            continue
+
+        # Check if the exact string exists
+        if find_str in content:
+            
+            # Create backup directory structure mirroring the working directory
+            backup_path = backup_dir / filepath
+            backup_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Copy original file to backup
+            shutil.copy2(filepath, backup_path)
+
+            # Perform literal string replacement
+            new_content = content.replace(find_str, replace_str)
+
+            # Write the modified content back
+            try:
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(new_content)
+                print(f"Modified: {filepath}")
+                modified_count += 1
+            except Exception as e:
+                print(f"Error writing to {filepath}: {e}")
+
+    print("\nOperation completed.")
+    print(f"Files modified: {modified_count}")
+    print(f"Backups created in: {backup_dir}")
+
+    # Clean up the backup directory if we didn't end up needing it
+    if modified_count == 0:
+        print("No files were modified. The search string was not found.")
+        shutil.rmtree(backup_dir)
+
+if __name__ == "__main__":
+    main()
+
+    
