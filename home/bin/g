@@ -33,6 +33,7 @@ run_grep() {
 
         rg -uu \
            -g '!{.venv,.git,.terragrunt-cache,.claude}' \
+           -g '!{tmp,ai-log,ai-log-summary}' \
            -g '!*.{pdf,jpg,jpeg,png,zip,tar,gz,exe,bin,mp4,mp3}' \
            "${rg_exclude[@]}" \
            --color=always "${args[@]}"
@@ -48,6 +49,9 @@ run_grep() {
              --exclude-dir=.git \
              --exclude-dir=.terragrunt-cache \
              --exclude-dir=.claude \
+             --exclude-dir=tmp \
+             --exclude-dir=ai-log \
+             --exclude-dir=ai-log-summary \
              --exclude='*.{pdf,jpg,jpeg,png,zip,tar,gz,exe,bin,mp4,mp3}' \
              "${grep_exclude[@]}" \
              --color=always "${args[@]}"
