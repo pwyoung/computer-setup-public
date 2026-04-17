@@ -1,0 +1,20 @@
+#!/bin/bash
+
+N=10
+if [[ "$1" =~ ^[0-9]+$ ]]; then
+  N="$1"
+  shift
+fi
+
+if [ -z "$@" ]; then
+  echo "Usage: W [seconds] <command...>"
+  exit 1
+fi
+
+while true; do
+  clear
+  date
+  "$@"
+  sleep "$N"
+done
+
