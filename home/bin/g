@@ -54,4 +54,5 @@ run_grep() {
     fi
 }
 
+clear
 run_grep "$@"
