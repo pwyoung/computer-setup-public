@@ -32,7 +32,7 @@
 minikube config set driver qemu2
 minikube config set memory 16384
 minikube config set cpus 4
-#minikube config set network socket_vmnet
+#minikube config set network socket_vmnet # This is implied (and fails here)
 minikube config set disk-size 40g
 
 # May 08 16:48:18 minikube kubelet[2688]: E0508 16:48:18.658187    2688 pod_workers.go:1324] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"registry\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/registry:3.0.0@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e\\\": ErrImagePull: error pulling image configuration: download failed after attempts=6: tls: failed to verify certificate: x509: certificate signed by unknown authority\"" pod="kube-system/registry-7984dc5f99-bqnfc" podUID="447cb831-622c-4c31-82ec-1fb1296ec3de"
@@ -40,7 +40,13 @@ minikube config set disk-size 40g
 # This did not help
 #minikube config set insecure-registry "docker.io"
 #
-export MINIKUBE_INSECURE_REGISTRY="docker.io"
+# This did not help
+#export MINIKUBE_INSECURE_REGISTRY="docker.io"
+#
+# This did not help
+#minikube start --embed-certs
+#
+# Give up (on mac w/qemu2): Just run the docker registry in docker, outside minikube...
 
 minikube delete
 
@@ -52,8 +58,7 @@ export KUBECONFIG=~/.kube/config.minikube
 
 #rm -f $KUBECONFIG # just update-context below
 
-#minikube start
-minikube start --embed-certs
+minikube start
 
 # The IP might have changed
 minikube update-context
