@@ -1,0 +1,73 @@
+#!/bin/bash
+
+# Basic setup
+#minikube config set driver docker
+#minikube config set memory 4096
+#minikube config set cpus 2
+#minikube config set kubernetes-version v1.34.0
+
+
+################################################################################
+# Recreate Minikube VM with custom networking to:
+# - support nodeport/loadbalancer connections the same way as a real cluster
+# - get dedicated resources (separate from the docker/podman system)
+################################################################################
+
+# Options
+#driver: Sets the driver to use (e.g., docker, kvm2, virtualbox, hyperkit, podman).
+#cpus: Number of CPUs allocated to the minikube VM (e.g., 2, 4).
+#memory: Amount of RAM allocated to the minikube VM (e.g., 2048, 4096, 8g).
+#kubernetes-version: The Kubernetes version to use (e.g., v1.34.0).
+#disk-size: Disk size allocated to the VM (e.g., 20g, 50gb).nodes: Total number of nodes in the cluster.
+#container-runtime: The container runtime to use (docker, crio, containerd). Minikube +5
+
+# NETWORKING (vmnet is to allow direct nodeport access without a tunnel)
+#
+# For user-level networking (no root):
+# minikube config set network builtin
+#
+# For advanced networking (requires socket_vmnet):
+# minikube config set network socket_vmnet
+
+minikube config set driver qemu2
+minikube config set memory 16384
+minikube config set cpus 4
+#minikube config set network socket_vmnet
+minikube config set disk-size 40g
+
+# May 08 16:48:18 minikube kubelet[2688]: E0508 16:48:18.658187    2688 pod_workers.go:1324] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"registry\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/registry:3.0.0@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e\\\": ErrImagePull: error pulling image configuration: download failed after attempts=6: tls: failed to verify certificate: x509: certificate signed by unknown authority\"" pod="kube-system/registry-7984dc5f99-bqnfc" podUID="447cb831-622c-4c31-82ec-1fb1296ec3de"
+#
+# This did not help
+#minikube config set insecure-registry "docker.io"
+#
+export MINIKUBE_INSECURE_REGISTRY="docker.io"
+
+minikube delete
+
+# Turn off minikube colors and emojis
+#export MINIKUBE_IN_STYLE=false
+
+# 'minikube start' will modify whatever the default KUBECONFIG otherwise.
+export KUBECONFIG=~/.kube/config.minikube
+
+#rm -f $KUBECONFIG # just update-context below
+
+#minikube start
+minikube start --embed-certs
+
+# The IP might have changed
+minikube update-context
+
+
+################################################################################
+# Basic test
+################################################################################
+
+sleep 2
+echo "KUBECONFIG=$KUBECONFIG"
+kubectl get nodes -o wide
+
+minikube status
+minikube profile list
+minikube config view
+

@@ -1,0 +1,72 @@
+#!/bin/bash
+
+# Turn off minikube colors and emojis
+#export MINIKUBE_IN_STYLE=false
+
+# 'minikube start' will modify whatever the default KUBECONFIG otherwise.
+export KUBECONFIG=~/.kube/config.minikube
+echo "KUBECONFIG=$KUBECONFIG"
+
+function status() {
+    kubectl get nodes -o wide
+
+    minikube status
+    minikube profile list
+}
+
+function build() {
+    if minikube status -o json | jq -r .APIServer | grep Running; then
+        echo "minikube seems up"
+    else
+        minikube start
+        minikube update-context
+    fi
+
+    if kubectl get deployment hello-minikube | grep '1/1'; then
+        echo "deployment seems up"
+    else
+        kubectl create deployment hello-minikube --image=kicbase/echo-server:1.0
+        sleep 1
+
+        # Expose it as a service
+        kubectl expose deployment hello-minikube --type=NodePort --port=8080
+        sleep 1
+    fi
+}
+
+function test_it() {
+    # Open it in your browser
+    #minikube service hello-minikube
+
+    # Get the URL and use it
+    URL=$(minikube service hello-minikube --url)
+
+    RESP=$(curl -X POST \
+                -H "Content-Type: application/json" \
+                -d '{"name":"dr-suess","msg":"hello-sam-i-am"}' \
+                $URL)
+
+    FILE=~/.tmp.json
+    echo "$RESP" | tee $FILE
+
+    LAST_LINE=$(cat "$FILE" | tail -1)
+    echo "LAST_LINE=$LAST_LINE"
+
+    echo "$LAST_LINE" | jq '.'
+
+}
+
+function clean() {
+    kubectl delete service hello-minikube
+    kubectl delete deployment hello-minikube
+}
+
+run() {
+    status
+    clean
+    build
+    test_it
+    clean
+}
+
+run

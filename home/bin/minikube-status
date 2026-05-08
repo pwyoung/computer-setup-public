@@ -1,0 +1,43 @@
+#!/bin/bash
+
+minikube status
+minikube profile list
+
+# Show config
+#
+#minikube config view
+#cat ~/.minikube/config/config.json | jq .
+#
+#minikube config get memory
+#minikube config get cpus
+
+#driver: Sets the driver to use (e.g., docker, kvm2, virtualbox, hyperkit, podman).
+#cpus: Number of CPUs allocated to the minikube VM (e.g., 2, 4).
+#memory: Amount of RAM allocated to the minikube VM (e.g., 2048, 4096, 8g).
+#kubernetes-version: The Kubernetes version to use (e.g., v1.34.0).
+#disk-size: Disk size allocated to the VM (e.g., 20g, 50gb).nodes: Total number of nodes in the cluster.
+#container-runtime: The container runtime to use (docker, crio, containerd). Minikube +5
+
+# NETWORKING (vmnet is to allow direct nodeport access without a tunnel)
+#
+# For user-level networking (no root):
+# minikube config set network builtin
+#
+# For advanced networking (requires socket_vmnet):
+# minikube config set network socket_vmnet
+
+# Common setup
+#minikube config set driver docker
+#minikube config set memory 4096
+#minikube config set cpus 2
+#minikube config set kubernetes-version v1.34.0
+#
+# Default setup (via minikube ssh)
+# cpu: 2
+# memory: 6gb
+# disk: 6gb
+#
+# minikube config set driver qemu2
+# minikube config set memory 16384
+# minikube config set cpus 4
+# minikube config set network socket_vmnet

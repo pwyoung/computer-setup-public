@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -x
+
 # GOAL
 # Install minikube natively (no Docker) with NodePort and LoadBalancer support.
 #
