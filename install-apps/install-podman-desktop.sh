@@ -4,6 +4,14 @@ GREP='grep --color'
 
 TEST_DIR=~/test-docker
 
+PACKAGES="podman podman-docker slirp4netns uidmap fuse-overlayfs podman-compose"
+# podman: The core container engine.
+# podman-docker: Creates a symbolic link so that the docker command points to podman, allowing you to use existing scripts or muscle memory.
+# slirp4netns: Required for rootless networking, allowing you to run containers without needing sudo privileges.
+# uidmap: Required for mapping user IDs in rootless containers.
+# fuse-overlayfs: Provides the filesystem overlay driver, which is highly recommended for rootless storage performance.
+# podman-compose: docker-compose support
+
 MSG() {
   echo "### $1"
 }
@@ -12,19 +20,10 @@ install_it() {
     if command -v podman &>/dev/null; then
         echo "podman is already installed"
     else
-        sudo apt update && sudo apt install -y podman podman-docker slirp4netns uidmap fuse-overlayfs podman-compose
+        sudo apt update && sudo apt install -y $PACKAGES
     fi
 
-
-    # podman: The core container engine.
-    # podman-docker: Creates a symbolic link so that the docker command points to podman, allowing you to use existing scripts or muscle memory.
-    # slirp4netns: Required for rootless networking, allowing you to run containers without needing sudo privileges.
-    # uidmap: Required for mapping user IDs in rootless containers.
-    # fuse-overlayfs: Provides the filesystem overlay driver, which is highly recommended for rootless storage performance.
-    # podman-compose: docker-compose support
-
-    #Enable User Namespaces
-    #To ensure rootless containers function correctly, ensure your user is configured in the subuid/subgid files:
+    $MSG 'Ensure rootless containers function correctly'
     echo "$USER:100000:65536" | sudo tee /etc/subuid &>/dev/null
     echo "$USER:100000:65536" | sudo tee /etc/subgid &>/dev/null
 
