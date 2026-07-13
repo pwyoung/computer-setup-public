@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+# Goal
+# - Force google's chrome to start
+
+# NOTES
+# - Deal with locked profiles, crudely.
+# - Chromium uses different binaries, paths, etc
+
+if pgrep chrome; then
+   pkill -o chrome
+fi
+
+F=~/.config/google-chrome/SingletonLock
+if [ -e $F ]; then
+  rm $F
+fi
+
+LOG=~/google-chrome.log
+nohup google-chrome >$LOG 2>&1 &
