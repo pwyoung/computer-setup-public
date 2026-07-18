@@ -120,3 +120,4 @@ tmp/
 
 
 **/agent-environment
+**/.claude/settings.local.json
