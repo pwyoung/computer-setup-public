@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+set -e
+
+echo "Restart tailscale"
+sudo systemctl restart tailscaled
+
+echo "Sleep and show tailscale status"
+sleep 3
+tailscale status
+RC=$?
+
+if [ $RC -ne 0 ]; then
+    echo "Show journal log recent lines"
+    read -p "Hit enter"
+    journalctl -u tailscaled --since "1 hour ago" | grep -iE "dns|health|resolv" |  tail -20
+
+    echo "Show /etc/resolv.conf (since it should use tailscale)"
+    cat /etc/resolv.conf
+fi
+
