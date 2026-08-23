@@ -1,0 +1,51 @@
+#!/bin/bash
+
+# Command dispatcher for the K860 Bluetooth setup.
+# The Makefile is a thin wrapper over this; both work standalone:
+#
+#   ./run status      make status
+#   ./run test        make test
+#   ./run install     make install
+#   ./run pair [2|3]  make pair
+#   ./run uninstall   make uninstall
+
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+    cat <<'MSG'
+Usage: ./run <command> [args]
+
+  status           Show current state (read-only)
+  test             Verify it actually works; non-zero exit on failure
+  install          Build and install BlueZ from source (needed on Pop!_OS 24.04)
+  pair [2|3]       Pair the keyboard on an Easy-Switch channel (default 2)
+  uninstall        Revert to the distro BlueZ
+  help             This message
+
+Typical first run:
+  ./run install && ./run pair 2 && ./run test
+MSG
+}
+
+cmd="${1:-help}"
+shift 2>/dev/null || true
+
+case "$cmd" in
+    status)    exec "$HERE/diagnostics/status.sh" "$@" ;;
+    test)      exec "$HERE/diagnostics/test.sh" "$@" ;;
+    install)   exec "$HERE/bluez/build-bluez.sh" "$@" ;;
+    uninstall) exec "$HERE/bluez/uninstall-bluez.sh" "$@" ;;
+    pair)
+        # Must run attached to a terminal: the passkey is displayed for ~30s and
+        # has to be typed on the keyboard itself.
+        if [ ! -t 1 ]; then
+            echo "'pair' needs a real terminal -- the passkey is shown for ~30s" >&2
+            echo "and you must type it on the K860. Run ./run pair directly." >&2
+            exit 1
+        fi
+        exec "$HERE/pairing/pair-k860-watch.sh" "$@"
+        ;;
+    help|-h|--help) usage ;;
+    *) echo "Unknown command: $cmd" >&2; echo >&2; usage >&2; exit 2 ;;
+esac
