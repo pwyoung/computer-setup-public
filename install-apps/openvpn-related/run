@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# Command dispatcher for OpenVPN Data Channel Offload.
+# The Makefile is a thin wrapper over this; both work standalone:
+#
+#   ./run status      make status
+#   ./run install     make install
+#   ./run test        make test
+#   ./run uninstall   make uninstall
+
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+    cat <<'MSG'
+Usage: ./run <command>
+
+  status     Show current state (read-only). Safe to run any time
+  install    Build and install the ovpn-dco-v2 DKMS module, load it, and
+             make it load at boot
+  test       Smoke test: stand up a REAL DCO tunnel between an OpenVPN
+             server and client in two throwaway network namespaces, and check
+             the data channel is actually offloaded. Non-zero on failure
+  test-compose
+             The same proof one layer out: both ends as CONTAINERS, via
+             docker compose. Proves a container can drive a module it could
+             never install. Non-zero on failure
+  uninstall  Unload it, stop it loading at boot, remove the package
+  help       This message
+
+Both tests REFUSE to run until the module is loaded -- they are acceptance
+tests for install, not diagnostics. Use status before installing.
+
+Typical first run:
+  ./run status && ./run install && ./run test && ./run test-compose
+
+WHAT THIS IS FOR. openvpn moves every packet across the kernel/userspace
+boundary twice in each direction. DCO keeps the TLS control channel in
+userspace and moves the encrypted data path into the kernel, which is worth
+several times the throughput on a tunnel you actually push data over.
+
+WHY THE OUT-OF-TREE MODULE. openvpn 2.6 -- what 24.04 ships -- speaks only to
+ovpn-dco-v2. The in-tree `ovpn` module merged in Linux 6.16 is for openvpn
+2.7, which is not packaged for 24.04. So this kernel already carries a DCO
+module that nothing installed here can talk to, and the DKMS one is the only
+route to DCO until openvpn 2.7 lands.
+MSG
+}
+
+cmd="${1:-help}"
+shift 2>/dev/null || true
+
+case "$cmd" in
+    status)    exec "$HERE/scripts/status.sh" "$@" ;;
+    install)   exec "$HERE/scripts/install.sh" "$@" ;;
+    test)         exec "$HERE/scripts/smoke-test.sh" "$@" ;;
+    test-compose) exec "$HERE/scripts/compose-test.sh" "$@" ;;
+    uninstall) exec "$HERE/scripts/uninstall.sh" "$@" ;;
+    help|-h|--help) usage ;;
+    *) echo "Unknown command: $cmd" >&2; echo >&2; usage >&2; exit 2 ;;
+esac

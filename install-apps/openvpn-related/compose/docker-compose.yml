@@ -1,0 +1,39 @@
+# Two containers, one OpenVPN tunnel between them, and the client asserting
+# that its data channel really is offloaded to the host's kernel module.
+#
+# The point of doing this in containers as well as in namespaces: a container
+# is the case people actually hit, and it is the one where "is the module
+# visible in here?" is a real question rather than an obvious yes.
+#
+# PKI_DIR is a throwaway CA and key pair generated per run, OUTSIDE this
+# directory. Nothing that looks like a private key is ever written into a
+# public repository checkout. ./run test-compose is what sets it.
+
+name: ovpn-dco-test
+
+x-common: &common
+  build: .
+  image: ovpn-dco-test
+  # NET_ADMIN to create the interface; /dev/net/tun for the userspace path the
+  # server uses and the client falls back to if offload is unavailable. Without
+  # them openvpn fails with a permission error that reads like a config problem.
+  cap_add: [NET_ADMIN]
+  devices: ["/dev/net/tun:/dev/net/tun"]
+  volumes:
+    - "${PKI_DIR:?PKI_DIR is not set -- run ./run test-compose, which generates one}:/pki:ro"
+  networks: [lab]
+
+services:
+  # Deliberately WITHOUT offload. Only the client is under test, and a
+  # userspace peer keeps the thing being proved down to one side.
+  server:
+    <<: *common
+    command: /server.sh
+
+  client:
+    <<: *common
+    command: /client.sh
+    depends_on: [server]
+
+networks:
+  lab:
