@@ -29,6 +29,8 @@ First-time setup:
     scripts/uninstall.sh    the reverse
     compose/                the two-container lab: Dockerfile, compose file,
                             server.sh and the client that does the asserting
+    docs/make-test/         what both tests actually run, command by command,
+                            and why each step is there
 
 ## What DCO is
 
