@@ -1,18 +1,42 @@
 #!/bin/bash
 
-# 1. Identify current branch
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
+# Push the current branch to every configured remote, and FAIL if any push failed.
+#
+# The exit status is the point. Until 2026-09-03 this looped over remotes without checking
+# `git push`, then printed "All pushes complete." unconditionally and exited 0 — so a rejected
+# push (non-fast-forward, a declined pre-receive hook, no network) printed its error into the
+# middle of the output and was immediately contradicted by the summary.
+#
+# That is not cosmetic. de3-developer's /ship Step 8 pushes with this script, so a ship could
+# report success having mirrored nothing — and it did: on 2026-09-03 GitLab refused a rebased
+# branch ("pre-receive hook declined", branch protection forbidding force-push) while gpa said
+# all pushes were complete. The disaster-recovery mirror silently stopped tracking for a day.
+# de3-developer P2.5.39.
 
-# 2. Display ONLY the push remotes (no fetch URLs)
+BRANCH=$(git rev-parse --abbrev-ref HEAD) || exit 1
+
 echo "--- Target Push Remotes ---"
 git remote -v | grep '(push)' | awk '{print $1 " \t " $2}'
 echo "---------------------------"
 
-# 3. Push to each remote
-REMOTES=$(git remote)
-for REMOTE in $REMOTES; do
+FAILED=""
+for REMOTE in $(git remote); do
     echo -e "\nPushing $BRANCH to $REMOTE..."
-    git push "$REMOTE" "$BRANCH"
+    if git push "$REMOTE" "$BRANCH"; then
+        :
+    else
+        # Record and keep going: the other remotes are still worth attempting, and knowing
+        # which ones succeeded is most of the diagnosis.
+        FAILED="$FAILED $REMOTE"
+    fi
 done
+
+if [ -n "$FAILED" ]; then
+    echo -e "\nPUSH FAILED to:$FAILED" >&2
+    echo "  '$BRANCH' is NOT on the remote(s) above. Anything that treats this as shipped —" >&2
+    echo "  /ship, a mirror, a CI trigger — is now wrong." >&2
+    echo "  Check with: git rev-parse HEAD; git rev-parse <remote>/$BRANCH" >&2
+    exit 1
+fi
 
 echo -e "\nAll pushes complete."
