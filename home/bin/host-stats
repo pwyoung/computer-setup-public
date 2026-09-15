@@ -1,0 +1,163 @@
+#!/bin/bash
+# Generates ~/.watch.tmp.bash (a self-contained dashboard script) and runs it via watch.
+#
+#   ./watch.sh            generate + watch every 5s
+#   ./watch.sh -n 2       generate + watch every 2s
+#   ./watch.sh --once     generate + run a single time (no watch)
+#   ./watch.sh --gen      generate only, print the path
+#
+# The generated script can also be run directly:  bash ~/.watch.tmp.bash
+
+set -euo pipefail
+
+OUT="$HOME/.watch.tmp.bash"
+INTERVAL=5
+MODE=watch
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -n) INTERVAL="$2"; shift 2 ;;
+        --once) MODE=once; shift ;;
+        --gen)  MODE=gen;  shift ;;
+        -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+        *) echo "unknown option: $1" >&2; exit 1 ;;
+    esac
+done
+
+generate() {
+    # Quoted heredoc: nothing is expanded here; the generated script is literal.
+    cat > "$OUT" <<'GENERATED'
+#!/bin/bash
+# Auto-generated system dashboard. Safe to run directly or under watch.
+export LC_ALL=C
+OS="$(uname)"
+
+section() { printf '\n### %s\n' "$1"; }
+
+show_host() {
+    section HOST
+    hostname -f 2>/dev/null || hostname
+}
+
+show_gpu() {
+    FLAG=0
+
+    if command -v gpustat >/dev/null 2>&1; then
+        FLAG=1
+        section "GPU (gpustat)"
+        # Convert "used / total MB" to GB; tolerate variable spacing.
+        # Unified-memory GPUs (e.g. GB10) report "?? / ?? MB"; then only the
+        # per-process "user(NNNNM)" figures are meaningful, so convert those.
+        gpustat --no-color 2>/dev/null | awk '
+        {
+            while (match($0, /[0-9]+ *\/ *[0-9]+ *MB/)) {
+                s = substr($0, RSTART, RLENGTH)
+                gsub(/ /, "", s); split(s, a, "/")
+                used = a[1] + 0; total = a[2] + 0
+                r = sprintf("%.1f / %.1f GB", used / 1024, total / 1024)
+                $0 = substr($0, 1, RSTART - 1) r substr($0, RSTART + RLENGTH)
+            }
+            if (match($0, /\?\? *\/ *\?\? *MB/))
+                $0 = substr($0, 1, RSTART - 1) "unified mem (see MEMORY)" substr($0, RSTART + RLENGTH)
+            while (match($0, /\([0-9]+M\)/)) {
+                mb = substr($0, RSTART + 1, RLENGTH - 3) + 0
+                $0 = substr($0, 1, RSTART) sprintf("%.1fG", mb / 1024) substr($0, RSTART + RLENGTH - 1)
+            }
+            print
+        }'
+    fi
+
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        FLAG=1
+        section "GPU (nvidia-smi)"
+        nvidia-smi
+    fi
+
+
+    if [ $FLAG -eq 0 ]; then
+        section "GPU"
+        echo "no gpustat or nvidia-smi found (pip install gpustat)"
+    fi
+}
+
+show_memory() {
+    section MEMORY
+    if [[ "$OS" == "Darwin" ]]; then
+        # macOS has no `free`; approximate from vm_stat page counts.
+        vm_stat | awk '
+            /page size of/ { ps = $8 }
+            /Pages free/          { free  = $3 }
+            /Pages active/        { act   = $3 }
+            /Pages inactive/      { inact = $3 }
+            /Pages wired/         { wired = $4 }
+            /Pages occupied by compressor/ { comp = $5 }
+            END {
+                gsub(/\./, "", free); gsub(/\./, "", act); gsub(/\./, "", inact)
+                gsub(/\./, "", wired); gsub(/\./, "", comp)
+                gb = ps / 1073741824
+                printf "used %.1f GB  (wired %.1f, active %.1f, compressed %.1f)  free %.1f GB\n",
+                       (act+wired+comp)*gb, wired*gb, act*gb, comp*gb, (free+inact)*gb
+            }'
+    else
+        free -h
+    fi
+}
+
+# $1 = "mem" | "cpu", $2 = number of rows
+show_procs() {
+    local key="$1" n="${2:-6}"
+    section "PROCS (top ${key} users)"
+    if [[ "$OS" == "Darwin" ]]; then
+        # -l 1 = one non-interactive sample; -stats limits columns.
+        top -l 1 -n "$n" -o "$key" -stats pid,command,cpu,mem 2>/dev/null \
+            | awk '/^PID/{p=1} p' | head -n $((n + 1))
+    else
+        # ps avoids top's tty requirement and is stable under watch.
+        local sortkey; [[ "$key" == "mem" ]] && sortkey=-%mem || sortkey=-%cpu
+        # Header-less ps; header and rows share one printf so columns line up.
+        ps -eo pid=,user=,%cpu=,%mem=,rss=,args= --sort="$sortkey" \
+            | head -n "$n" \
+            | awk '
+            BEGIN { fmt = "%8s %-10s %6s %6s %10s  %s\n"
+                    printf fmt, "PID", "USER", "%CPU", "%MEM", "RSS", "COMMAND" }
+            {
+                cmd = ""; for (i = 6; i <= NF; i++) cmd = cmd (i > 6 ? " " : "") $i
+                if (length(cmd) > 40) cmd = substr(cmd, 1, 39) "…"
+                rss = ($5 >= 1048576) ? sprintf("%.1fG", $5/1048576) : sprintf("%.0fM", $5/1024)
+                printf fmt, $1, substr($2, 1, 10), $3, $4, rss, cmd
+            }'
+    fi
+}
+
+show_docker() {
+    command -v docker >/dev/null 2>&1 || return 0
+    docker info >/dev/null 2>&1 || return 0
+    section DOCKER
+    docker stats --no-stream --format '{{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}' 2>/dev/null | awk -F'\t' '
+    {
+        split($2, a, " / "); v = a[1]
+        if      (v ~ /GiB/) g = v + 0
+        else if (v ~ /MiB/) g = (v + 0) / 1024
+        else if (v ~ /KiB/) g = (v + 0) / 1048576
+        else                g = (v + 0) / 1073741824
+        printf "%-30s %7.2f GB  %7s\n", $1, g, $3
+    }' | sort -k2 -nr
+}
+
+show_host
+show_memory
+show_procs mem 6
+show_procs cpu 6
+show_docker
+show_gpu
+GENERATED
+    chmod +x "$OUT"
+}
+
+generate
+
+case "$MODE" in
+    gen)   echo "$OUT" ;;
+    once)  bash "$OUT" ;;
+    watch) exec watch -n "$INTERVAL" -t bash "$OUT" ;;
+esac
