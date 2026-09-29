@@ -34,6 +34,11 @@ OS="$(uname)"
 
 section() { printf '\n### %s\n' "$1"; }
 
+show_time() {
+    section TIME
+    date
+}
+
 show_host() {
     section HOST
     hostname -f 2>/dev/null || hostname
@@ -70,7 +75,10 @@ show_gpu() {
     if command -v nvidia-smi >/dev/null 2>&1; then
         FLAG=1
         section "GPU (nvidia-smi)"
-        nvidia-smi
+        # Top part
+        nvidia-smi | head -12 | tail -11
+        # Procs, without clipping on GB10
+        nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
     fi
 
 
@@ -133,21 +141,50 @@ show_docker() {
     command -v docker >/dev/null 2>&1 || return 0
     docker info >/dev/null 2>&1 || return 0
     section DOCKER
-    docker stats --no-stream --format '{{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}' 2>/dev/null | awk -F'\t' '
+
+    local uptime_file
+    uptime_file=$(mktemp)
+    docker ps --format '{{.Names}}\t{{.RunningFor}}' > "$uptime_file"
+
+    docker stats --no-stream --format '{{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}' 2>/dev/null | awk -F'\t' -v uptime_file="$uptime_file" '
+    BEGIN {
+        while ((getline line < uptime_file) > 0) {
+            split(line, f, "\t")
+            up[f[1]] = f[2]
+        }
+        close(uptime_file)
+        maxlen = length("NAME")
+    }
     {
         split($2, a, " / "); v = a[1]
         if      (v ~ /GiB/) g = v + 0
         else if (v ~ /MiB/) g = (v + 0) / 1024
         else if (v ~ /KiB/) g = (v + 0) / 1048576
         else                g = (v + 0) / 1073741824
-        printf "%-30s %7.2f GB  %7s\n", $1, g, $3
-    }' | sort -k2 -nr
+
+        name[NR] = $1
+        mem[NR]  = g
+        cpu[NR]  = $3
+        upt[NR]  = ($1 in up) ? up[$1] : "?"
+        if (length($1) > maxlen) maxlen = length($1)
+        n = NR
+    }
+    END {
+        fmt = "%-" maxlen "s %10s %8s  %-15s\n"
+        printf fmt, "NAME", "MEM", "CPU", "UPTIME"
+        for (i = 1; i <= n; i++) {
+            printf "%-" maxlen "s %8.2f GB %8s  %-15s\n", name[i], mem[i], cpu[i], upt[i]
+        }
+    }'
+
+    rm -f "$uptime_file"
 }
 
+show_time
 show_host
 show_memory
-show_procs mem 6
-show_procs cpu 6
+show_procs mem 3
+show_procs cpu 3
 show_docker
 show_gpu
 GENERATED
