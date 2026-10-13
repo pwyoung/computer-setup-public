@@ -1,1 +1,2 @@
-zellij d default
+zellij d default --force
+
