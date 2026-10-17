@@ -1,5 +1,10 @@
 #!/bin/bash
 
+#echo "HELLO FROM .bash_profile, $0"
+
+# We want ~.bashrc (or the login system) to source this file (once)
+export BASH_PROFILE_SOURCED=1
+
 
 ################################################################################
 # Add to PATH (so that subsequent stuff can use this)
