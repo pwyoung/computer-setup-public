@@ -48,6 +48,11 @@ setup_symlinks() {
     fi
 
     report "Setting exec perms on our directories"
+    mkdir -p ~/bin-private/
+    touch ~/bin-private/noop
+    mkdir -p ~/.profile.d
+    touch ~/.profile.d/noop
+    #
     chmod +x ~/bin-private/*
     chmod +x ~/.profile.d/*
 }
