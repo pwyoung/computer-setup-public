@@ -1,0 +1,3 @@
+
+pkill -9 -f pycharm
+~/.local/share/JetBrains/Toolbox/scripts/pycharm > pycharm.out 2>&1 &
