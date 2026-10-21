@@ -13,7 +13,7 @@ set_zellij_tab_name() {
 }
 
 # SSH wrapper to temporarily rename the tab to the remote host name
-ssh() {
+S() {
   if [[ -n "${ZELLIJ:-}" ]]; then
     local host rc
     host="$1"
