@@ -5,6 +5,24 @@
 # - g "foo"
 # - g -x "bar" "foo"
 
+# Notes
+# - This uses 'ripgrep' if it is available
+# - This ignores a number of files that should be excluded normally
+
+# Standard exclusions
+EXCLUDED_DIRS=(
+    .venv
+    .git
+    .terragrunt-cache
+    .claude
+)
+EXCLUDED_EXTENSIONS=(
+    pdf jpg jpeg png
+    zip tar gz
+    exe bin
+    mp4 mp3
+)
+
 run_grep() {
     local exclude_pattern=""
     local args=()
@@ -23,34 +41,23 @@ run_grep() {
         esac
     done
 
+    local dir ext
+    local excludes=()
+
     if command -v rg &>/dev/null; then
-        # ripgrep uses -g for glob patterns.
+        # ripgrep uses -g for glob patterns; a leading ! excludes.
+        for dir in "${EXCLUDED_DIRS[@]}"; do excludes+=(-g "!${dir}"); done
+        for ext in "${EXCLUDED_EXTENSIONS[@]}"; do excludes+=(-g "!*.${ext}"); done
         # *{pattern}* ensures it matches anywhere in the path.
-        local rg_exclude=()
-        if [[ -n "$exclude_pattern" ]]; then
-            rg_exclude=(-g "!*${exclude_pattern}*")
-        fi
+        [[ -n "$exclude_pattern" ]] && excludes+=(-g "!*${exclude_pattern}*")
 
-        rg -uu \
-           -g '!{.venv,.git,.terragrunt-cache,.claude}' \
-           -g '!*.{pdf,jpg,jpeg,png,zip,tar,gz,exe,bin,mp4,mp3}' \
-           "${rg_exclude[@]}" \
-           --color=always "${args[@]}"
+        rg -uu "${excludes[@]}" --color=always "${args[@]}"
     else
-        # Standard grep syntax
-        local grep_exclude=()
-        if [[ -n "$exclude_pattern" ]]; then
-            grep_exclude=(--exclude-dir="*${exclude_pattern}*" --exclude="*${exclude_pattern}*")
-        fi
+        for dir in "${EXCLUDED_DIRS[@]}"; do excludes+=(--exclude-dir="${dir}"); done
+        for ext in "${EXCLUDED_EXTENSIONS[@]}"; do excludes+=(--exclude="*.${ext}"); done
+        [[ -n "$exclude_pattern" ]] && excludes+=(--exclude-dir="*${exclude_pattern}*" --exclude="*${exclude_pattern}*")
 
-        grep -r \
-             --exclude-dir=.venv \
-             --exclude-dir=.git \
-             --exclude-dir=.terragrunt-cache \
-             --exclude-dir=.claude \
-             --exclude='*.{pdf,jpg,jpeg,png,zip,tar,gz,exe,bin,mp4,mp3}' \
-             "${grep_exclude[@]}" \
-             --color=always "${args[@]}"
+        grep -r "${excludes[@]}" --color=always "${args[@]}"
     fi
 }
 
