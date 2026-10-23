@@ -15,6 +15,7 @@ EXCLUDED_DIRS=(
     .git
     .terragrunt-cache
     .claude
+    ansible_collections
 )
 EXCLUDED_EXTENSIONS=(
     pdf jpg jpeg png
