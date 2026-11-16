@@ -90,4 +90,6 @@ if [ -e "$HOME/.local/bin/env" ]; then
     . "$HOME/.local/bin/env"
 fi
 
-. "$HOME/.cargo/env"
+if [ -e "$HOME/.cargo/env" ]; then
+    . "$HOME/.cargo/env"
+fi
